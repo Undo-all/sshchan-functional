@@ -65,8 +65,8 @@ getThreads conn board = do
     replies <- mapM (\(Post _ _ _ id _) -> getReplies conn id board) ops
     return (zipWith Thread ops replies)
   where queryOps = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
-                              \post_content FROM posts WHERE post_reply IS NULL\ 
-                              \AND post_board = "
+                              \, post_content FROM posts WHERE post_reply IS\
+                              \ NULL AND post_board = "
                             , T.pack (show board)
                             , " ORDER BY post_id DESC"
                             ]
@@ -90,7 +90,7 @@ renderPosts = vBox . map renderPost
 
 renderThread :: Thread -> Widget
 renderThread (Thread op xs) =
-    renderPost op <=> padLeft (Pad 1) (renderPosts xs)
+    renderPost op <=> padLeft (Pad 2) (renderPosts xs)
 
 renderThreads :: [Thread] -> Widget
 renderThreads = viewport "threads" Vertical . vBox . map renderThread
@@ -145,7 +145,12 @@ drawUI :: AppState -> [Widget]
 drawUI (AppState (Homepage d) _) =
     [renderDialog d . hCenter . padAll 1 $ str ""]
 drawUI (AppState (ViewBoard _ xs Nothing) _) =
-    [hCenter (str "Ctrl+P to make a post") <=> renderThreads xs]
+    [hCenter instructions <=> renderThreads xs]
+  where instructions = hBox . map (padLeftRight 10) $
+                           [ str "Ctrl+P to make a post"
+                           , str "Esc to disconnect"
+                           , str "Ctrl+Z to return to the homepage"
+                           ]
 drawUI (AppState (ViewBoard _ _ (Just ui)) _) =
     [ center $ renderPostUI ui ]
 
@@ -158,7 +163,7 @@ appEvent st@(AppState (Homepage d) conn) ev =
           then continue st
           else do let name = fromMaybe undefined (dialogSelection d) 
                   [Only board] <- liftIO $ query_ conn $ Query $ T.concat
-                                    [ "SELECT board_id FROM boards\
+                                    [ "SELECT board_id FROM boards \
                                       \WHERE board_name = "
                                     , T.pack (show name)
                                     ]
@@ -175,6 +180,11 @@ appEvent st@(AppState (ViewBoard board xs Nothing) conn) ev =
       EvKey KDown []            -> do
         vScrollBy (viewportScroll "threads") 5
         continue st
+      EvKey (KChar 'z') [MCtrl] -> do
+        boards <- liftIO $ query_ conn "SELECT board_name FROM boards"
+        name   <- liftIO $ init <$> readFile "name.txt"
+        let d = homepageDialog (map (\(Only board) -> T.unpack board) boards) name
+        continue (AppState (Homepage d) conn)
       EvKey (KChar 'p') [MCtrl] ->
         continue (AppState (ViewBoard board xs (Just defPostUI)) conn)
       _                         -> continue st
@@ -235,7 +245,7 @@ main = do
     name     <- init <$> readFile "name.txt"
     conn     <- open (name ++ ".db")
     boards   <- query_ conn "SELECT board_name FROM boards"
-    defaultMain (App drawUI appCursor appEvent return (const theMap) id) 
+    defaultMain theApp
                 (AppState (Homepage $ homepageDialog (map (\(Only board) -> T.unpack board) boards) name) conn)
     return ()
 
