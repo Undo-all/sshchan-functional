@@ -116,24 +116,25 @@ updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
 
 renderPostUI :: PostUI -> Widget
 renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
-    vBox [ padBottom (Pad 1) (str "Ctrl+S to save post.")
-         , vLimit 100 . hLimit 50 . padBottom (Pad 1) $ hBox
+    vBox [ (padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save") <+>
+           (padBottom (Pad 1) $ str "Ctrl+C to cancel")
+         , vLimit 35 . hLimit 150 . padBottom (Pad 1) $ hBox
                [ str "Subject: ", renderEditor ed1
                , padLeft (Pad 1) $ str "Name: ", renderEditor ed2
                , padLeft (Pad 1) $ str "Reply to: ", renderEditor ed3
                ]
-         , vLimit 100 . hLimit 50 $ renderEditor ed4
+         , vLimit 35 . hLimit 150 $ renderEditor ed4
          ]
 
 data AppState = AppState Page Connection
 
-homepageDialog :: [String] -> Dialog Int
-homepageDialog xs = dialog "boardselect" (Just "Title") (Just (0, choices)) 50
+homepageDialog :: [String] -> String -> Dialog Int
+homepageDialog xs name = dialog "boardselect" (Just name) (Just (0, choices)) 50
   where choices = zip xs [1..length xs]
 
 drawUI :: AppState -> [Widget]
 drawUI (AppState (Homepage d) _) =
-    [renderDialog d $ hCenter $ padAll 1 $ str "Temporary."]
+    [renderDialog d . hCenter . padAll 1 $ str ""]
 drawUI (AppState (ViewBoard _ xs Nothing) _) =
     [hCenter (str "Ctrl+P to make a post") <=> renderThreads xs]
 drawUI (AppState (ViewBoard _ xs (Just ui)) _) =
@@ -169,6 +170,8 @@ appEvent st@(AppState (ViewBoard board xs Nothing) conn) ev =
 appEvent st@(AppState (ViewBoard board xs (Just ui@(PostUI focus ed1 ed2 ed3 ed4))) conn) ev =
     case ev of
       EvKey KEsc []             -> halt st
+      EvKey (KChar 'c') [MCtrl] ->
+        continue (AppState (ViewBoard board xs Nothing) conn)
       EvKey (KChar 's') [MCtrl] ->
         if null (getEditContents ed4) || all null (getEditContents ed4)
           then continue st
@@ -204,9 +207,10 @@ theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
 
 main :: IO ()
 main = do
-    conn   <- open "test.db"
+    name     <- init <$> readFile "name.txt"
+    conn     <- open (name ++ ".db")
     [boards] <- query_ conn "SELECT board_name FROM boards"
     defaultMain (App drawUI appCursor appEvent return (\_ -> theMap) id) 
-                (AppState (Homepage $ homepageDialog (map T.unpack boards)) conn)
+                (AppState (Homepage $ homepageDialog (map T.unpack boards) name) conn)
     return ()
 
