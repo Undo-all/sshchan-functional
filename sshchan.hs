@@ -198,7 +198,7 @@ theMap :: AttrMap
 theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
                          , (buttonAttr, black `on` white)
                          , (buttonSelectedAttr, bg yellow)
-                         , (editAttr, white `on` blue)
+                         , (editAttr, black `on` white)
                          ]
 
 main :: IO ()
