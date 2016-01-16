@@ -38,13 +38,6 @@ showNull :: Show a => Maybe a -> Text
 showNull Nothing  = "NULL"
 showNull (Just x) = T.pack (show x)
 
-makeBoard :: Connection -> Text -> Text -> IO ()
-makeBoard conn name desc = execute_ conn (Query board)
-  where board = T.concat [ "INSERT INTO boards VALUES(NULL,\""
-                         , name, "\",\""
-                         , desc, "\");"
-                         ]
-
 makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn subject name content board reply = execute_ conn (Query post)
   where post = T.concat [ "INSERT INTO posts VALUES(NULL,date('now'),"
