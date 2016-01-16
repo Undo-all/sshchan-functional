@@ -49,31 +49,48 @@ makePost conn subject name content board reply = execute_ conn (Query post)
 
 getReplies :: Connection -> Int -> Int -> IO [Post]
 getReplies conn id board =
-    query_ conn $ Query $ T.concat ["SELECT post_id, post_date, post_by, post_subject, post_content FROM posts WHERE post_reply = ", T.pack (show id), " AND post_board = ", T.pack (show board), " ORDER BY post_id ASC"]
+    query_ conn (Query queryReplies)
+  where queryReplies = T.concat [ "SELECT post_id, post_date, post_by, \
+                                  \post_subject, post_content FROM posts WHERE \
+                                  \post_reply = "
+                                , T.pack (show id)
+                                , " AND post_board = "
+                                , T.pack (show board)
+                                , " ORDER BY post_id ASC"
+                                ]
 
 getThreads :: Connection -> Int -> IO [Thread]
 getThreads conn board = do
-    ops     <- query_ conn (Query $ T.concat ["SELECT post_id, post_date, post_by, post_subject, post_content FROM posts WHERE post_reply IS NULL AND post_board = ", T.pack (show board), " ORDER BY post_id DESC"])
+    ops     <- query_ conn (Query queryOps)
     replies <- mapM (\(Post _ _ _ id _) -> getReplies conn id board) ops
     return (zipWith Thread ops replies)
+  where queryOps = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
+                              \post_content FROM posts WHERE post_reply IS NULL\ 
+                              \AND post_board = "
+                            , T.pack (show board)
+                            , " ORDER BY post_id DESC"
+                            ]
 
 renderPost :: Post -> Widget
 renderPost (Post subject name date id content) =
-    let foo _ Nothing   = ""
-        foo m (Just xs) = T.concat [" | ", m, ": ", xs]
-        subjectInfo     = maybe emptyWidget (raw . string (Attr (SetTo bold) (SetTo blue) Default) . T.unpack) subject
-        nameInfo        = raw . string (Attr (SetTo bold) (SetTo green) Default) $ maybe "Anonymous" T.unpack name
-        dateInfo        = str (showGregorian date)
-        idInfo          = str ("No. " ++ show id)
-        info            = hBox $ map (padRight (Pad 1)) [subjectInfo, nameInfo, dateInfo, idInfo]
-        body            = vBox . map txt . T.splitOn "\\n" $ content
-    in border . padRight Max $ (padBottom (Pad 1) info) <=> body
+    let renderSubject =
+          raw . string (Attr (SetTo bold) (SetTo blue) Default) . T.unpack
+        subjectInfo   = maybe emptyWidget renderSubject subject
+        renderName    = raw . string (Attr (SetTo bold) (SetTo green) Default)
+        nameInfo      = renderName $ maybe "Anonymous" T.unpack name
+        dateInfo      = str (showGregorian date)
+        idInfo        = str ("No. " ++ show id)
+        allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
+        info          = hBox $ map (padRight (Pad 1)) allInfo
+        body          = vBox . map txt . T.splitOn "\\n" $ content
+    in border . padRight Max $ padBottom (Pad 1) info <=> body
 
 renderPosts :: [Post] -> Widget
 renderPosts = vBox . map renderPost
 
 renderThread :: Thread -> Widget
-renderThread (Thread op xs) = renderPost op <=> padLeft (Pad 1) (renderPosts xs)
+renderThread (Thread op xs) =
+    renderPost op <=> padLeft (Pad 1) (renderPosts xs)
 
 renderThreads :: [Thread] -> Widget
 renderThreads = viewport "threads" Vertical . vBox . map renderThread
@@ -109,7 +126,7 @@ updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
 renderPostUI :: PostUI -> Widget
 renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
     vBox [ (padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save") <+>
-           (padBottom (Pad 1) $ str "Ctrl+C to cancel")
+            padBottom (Pad 1) (str "Ctrl+C to cancel")
          , vLimit 35 . hLimit 150 . padBottom (Pad 1) $ hBox
                [ str "Subject: ", renderEditor ed1
                , padLeft (Pad 1) $ str "Name: ", renderEditor ed2
@@ -129,10 +146,8 @@ drawUI (AppState (Homepage d) _) =
     [renderDialog d . hCenter . padAll 1 $ str ""]
 drawUI (AppState (ViewBoard _ xs Nothing) _) =
     [hCenter (str "Ctrl+P to make a post") <=> renderThreads xs]
-drawUI (AppState (ViewBoard _ xs (Just ui)) _) =
-    [ center $ renderPostUI ui
-    , hCenter (str "Ctrl+P to make a post") <=> renderThreads xs
-    ]
+drawUI (AppState (ViewBoard _ _ (Just ui)) _) =
+    [ center $ renderPostUI ui ]
 
 appEvent :: AppState -> Event -> EventM (Next AppState)
 appEvent st@(AppState (Homepage d) conn) ev =
@@ -142,10 +157,11 @@ appEvent st@(AppState (Homepage d) conn) ev =
         if isNothing (dialogSelection d)
           then continue st
           else do let name = fromMaybe undefined (dialogSelection d) 
-                  [(Only board)] <- liftIO $ query_ conn $ Query $ T.concat
-                                      [ "SELECT board_id FROM boards WHERE board_name = "
-                                      , T.pack (show name)
-                                      ]
+                  [Only board] <- liftIO $ query_ conn $ Query $ T.concat
+                                    [ "SELECT board_id FROM boards\
+                                      \WHERE board_name = "
+                                    , T.pack (show name)
+                                    ]
                   xs <- liftIO $ getThreads conn board
                   continue (AppState (ViewBoard board xs Nothing) conn)
       _               -> handleEvent ev d >>= continue . (\d -> AppState (Homepage d) conn)
@@ -171,11 +187,13 @@ appEvent st@(AppState (ViewBoard board xs (Just ui@(PostUI focus ed1 ed2 ed3 ed4
       EvKey (KChar 's') [MCtrl] ->
         if null (getEditContents ed4) || all null (getEditContents ed4)
           then continue st
-          else let subject = T.pack <$> listToMaybe' (head $ getEditContents ed1)
-                   name    = T.pack <$> listToMaybe' (head $ getEditContents ed2)
-                   reply   = listToMaybe (getEditContents ed3) >>= readInt
-                   content = T.pack . unlines $ getEditContents ed4
-               in do liftIO $ makePost conn subject name (T.stripEnd content) board reply
+          else let
+                 subject = T.pack <$> listToMaybe' (head $ getEditContents ed1)
+                 name    = T.pack <$> listToMaybe' (head $ getEditContents ed2)
+                 reply   = listToMaybe (getEditContents ed3) >>= readInt
+                 content = T.pack . unlines $ getEditContents ed4
+               in do liftIO $ makePost conn subject name (T.stripEnd content) 
+                              board reply
                      xs' <- liftIO $ getThreads conn board 
                      continue (AppState (ViewBoard board xs' Nothing) conn)
       EvKey (KChar '\t') [] ->
@@ -185,7 +203,8 @@ appEvent st@(AppState (ViewBoard board xs (Just ui@(PostUI focus ed1 ed2 ed3 ed4
                            conn)
       _                         -> do
         ed <- handleEvent ev (currentEditor ui)
-        continue (AppState (ViewBoard board xs (Just (updateEditor ui ed))) conn)
+        continue (AppState (ViewBoard board xs (Just (updateEditor ui ed)))
+                           conn)
   where readInt x       = readMaybe x :: Maybe Int
         listToMaybe' [] = Nothing
         listToMaybe' xs = Just xs
@@ -201,12 +220,22 @@ theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
                          , (editAttr, black `on` white)
                          ]
 
+theApp :: App AppState Event
+theApp =
+    App { appDraw         = drawUI
+        , appChooseCursor = appCursor
+        , appHandleEvent  = appEvent
+        , appStartEvent   = return
+        , appAttrMap      = const theMap
+        , appLiftVtyEvent = id
+        }
+
 main :: IO ()
 main = do
     name     <- init <$> readFile "name.txt"
     conn     <- open (name ++ ".db")
     boards   <- query_ conn "SELECT board_name FROM boards"
-    defaultMain (App drawUI appCursor appEvent return (\_ -> theMap) id) 
+    defaultMain (App drawUI appCursor appEvent return (const theMap) id) 
                 (AppState (Homepage $ homepageDialog (map (\(Only board) -> T.unpack board) boards) name) conn)
     return ()
 
