@@ -26,6 +26,7 @@ sudo passwd "$user"
 sudo mv sshchan "$dir"
 sudo mv admin "$dir"
 cat setup.sql | sudo sqlite3 "$dir/$name.db"
+sudo chown "$user":anons "$dir/$name.db"
 echo "$name" | sudo tee -a "$dir/name.txt"
 printf "Match User $user\n    ForceCommand ./sshchan" | sudo tee -a /etc/ssh/sshd_config
 printf "\nAlmost done! You need to restart ssh. This is done differently on different distros (http://www.cyberciti.biz/faq/howto-restart-ssh/).\n"
