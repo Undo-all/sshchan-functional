@@ -86,7 +86,7 @@ renderThread (Thread op xs) = renderPost op <=> padLeft (Pad 1) (renderPosts xs)
 renderThreads :: [Thread] -> Widget
 renderThreads = viewport "threads" Vertical . vBox . map renderThread
 
-data Page = Homepage (Dialog Int)
+data Page = Homepage (Dialog String)
           | ViewBoard Int [Thread] (Maybe PostUI)
 
 data PostUI = PostUI Int Editor Editor Editor Editor
@@ -128,9 +128,9 @@ renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
 
 data AppState = AppState Page Connection
 
-homepageDialog :: [String] -> String -> Dialog Int
+homepageDialog :: [String] -> String -> Dialog String
 homepageDialog xs name = dialog "boardselect" (Just name) (Just (0, choices)) 50
-  where choices = zip xs [1..length xs]
+  where choices = zip xs xs
 
 drawUI :: AppState -> [Widget]
 drawUI (AppState (Homepage d) _) =
@@ -149,7 +149,11 @@ appEvent st@(AppState (Homepage d) conn) ev =
       EvKey KEnter [] ->
         if isNothing (dialogSelection d)
           then continue st
-          else do let board = fromMaybe undefined (dialogSelection d) 
+          else do let name = fromMaybe undefined (dialogSelection d) 
+                  [(Only board)] <- liftIO $ query_ conn $ Query $ T.concat
+                                      [ "SELECT board_id FROM boards WHERE board_name = "
+                                      , T.pack (show name)
+                                      ]
                   xs <- liftIO $ getThreads conn board
                   continue (AppState (ViewBoard board xs Nothing) conn)
       _               -> handleEvent ev d >>= continue . (\d -> AppState (Homepage d) conn)
