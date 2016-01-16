@@ -3,7 +3,6 @@
 module Main where
 
 import Brick
-import Network
 import Data.Time
 import Data.Maybe
 import Data.String
@@ -206,8 +205,8 @@ main :: IO ()
 main = do
     name     <- init <$> readFile "name.txt"
     conn     <- open (name ++ ".db")
-    [boards] <- query_ conn "SELECT board_name FROM boards"
+    boards   <- query_ conn "SELECT board_name FROM boards"
     defaultMain (App drawUI appCursor appEvent return (\_ -> theMap) id) 
-                (AppState (Homepage $ homepageDialog (map T.unpack boards) name) conn)
+                (AppState (Homepage $ homepageDialog (map (\(Only board) -> T.unpack board) boards) name) conn)
     return ()
 
