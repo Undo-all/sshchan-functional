@@ -161,11 +161,13 @@ renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
 data AppState = AppState Page Connection
 
 -- Construct the homepage dialog.
--- TODO: Make this just take a Connection and automatically get the boards
--- and the name of the chan.
-homepageDialog :: [String] -> String -> Dialog String
-homepageDialog xs name = dialog "boardselect" (Just name) (Just (0, choices)) 50
-  where choices = zip xs xs
+homepageDialog :: Connection -> IO (Dialog String)
+homepageDialog conn = do
+    name   <- liftIO $ init <$> readFile "name.txt"
+    boards <- liftIO $ query_ conn "SELECT board_name FROM boards"
+    let xs      = map (\(Only board) -> T.unpack board) boards
+        choices = zip xs xs 
+    return $ dialog "boardselect" (Just name) (Just (0, choices)) 50
 
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
@@ -210,9 +212,7 @@ appEvent st@(AppState (ViewBoard board xs Nothing) conn) ev =
         vScrollBy (viewportScroll "threads") 5
         continue st
       EvKey (KChar 'z') [MCtrl] -> do
-        boards <- liftIO $ query_ conn "SELECT board_name FROM boards"
-        name   <- liftIO $ init <$> readFile "name.txt"
-        let d = homepageDialog (map (\(Only board) -> T.unpack board) boards) name
+        d <- liftIO $ homepageDialog conn
         continue (AppState (Homepage d) conn)
       EvKey (KChar 'p') [MCtrl] ->
         continue (AppState (ViewBoard board xs (Just defPostUI)) conn)
@@ -273,13 +273,11 @@ theApp =
         , appLiftVtyEvent = id
         }
 
--- TODO: Shorten line 283 holy shit
 main :: IO ()
 main = do
-    name     <- init <$> readFile "name.txt"
-    conn     <- open (name ++ ".db")
-    boards   <- query_ conn "SELECT board_name FROM boards"
-    defaultMain theApp
-                (AppState (Homepage $ homepageDialog (map (\(Only board) -> T.unpack board) boards) name) conn)
+    name <- init <$> readFile "name.txt"
+    conn <- open (name ++ ".db")
+    d    <- homepageDialog conn
+    defaultMain theApp (AppState (Homepage d) conn)
     return ()
 
