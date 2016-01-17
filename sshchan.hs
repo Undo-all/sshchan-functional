@@ -19,9 +19,11 @@ import qualified Data.Text as T
 import Graphics.Vty.Input.Events
 import Database.SQLite.Simple.FromField
 
+-- Posts hold posts!
 data Post = Post (Maybe Text) (Maybe Text) Day Int Text
           deriving (Eq, Show)
 
+-- There's definitely a cleaner way to do this...
 instance FromRow Post where
     fromRow = do id      <- field
                  date    <- field
@@ -30,13 +32,16 @@ instance FromRow Post where
                  content <- field
                  return $ Post subject name date id content
 
+-- Threads hold threads!
 data Thread = Thread Post [Post]
             deriving (Eq, Show)
 
+-- Converts a Maybe value into a SQL value.
 showNull :: Show a => Maybe a -> Text
 showNull Nothing  = "NULL"
 showNull (Just x) = T.pack (show x)
 
+-- Make a post (ofc)
 makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn subject name content board reply = execute_ conn (Query post)
   where post = T.concat [ "INSERT INTO posts VALUES(NULL,date('now'),"
@@ -47,6 +52,7 @@ makePost conn subject name content board reply = execute_ conn (Query post)
                         , showNull reply, ");"
                         ]
 
+-- Fetch the replies to a post (slow?)
 getReplies :: Connection -> Int -> Int -> IO [Post]
 getReplies conn id board =
     query_ conn (Query queryReplies)
@@ -59,6 +65,7 @@ getReplies conn id board =
                                 , " ORDER BY post_id ASC"
                                 ]
 
+-- Get the threads on a board.
 getThreads :: Connection -> Int -> IO [Thread]
 getThreads conn board = do
     ops     <- query_ conn (Query queryOps)
@@ -71,6 +78,7 @@ getThreads conn board = do
                             , " ORDER BY post_id DESC"
                             ]
 
+-- Renders a post.
 renderPost :: Post -> Widget
 renderPost (Post subject name date id content) =
     let renderSubject =
@@ -85,21 +93,31 @@ renderPost (Post subject name date id content) =
         body          = vBox . map txt . T.splitOn "\\n" $ content
     in border . padRight Max $ padBottom (Pad 1) info <=> body
 
+-- Render several posts.
 renderPosts :: [Post] -> Widget
 renderPosts = vBox . map renderPost
 
+-- Render a thread.
 renderThread :: Thread -> Widget
 renderThread (Thread op xs) =
     renderPost op <=> padLeft (Pad 2) (renderPosts xs)
 
+-- Render several threads (these comments are helpful, aren't they?)
 renderThreads :: [Thread] -> Widget
 renderThreads = viewport "threads" Vertical . vBox . map renderThread
 
+-- This stores what page you're on.
+-- TODO: make PostUI it's own page instead of this wack-ass bullshit where
+-- it's part of the ViewBoard page.
 data Page = Homepage (Dialog String)
           | ViewBoard Int [Thread] (Maybe PostUI)
 
+-- The posting UI, in all it's fanciness.
+-- I use an integer to store what editor is currently selected because
+-- I don't wanna learn how to use lenses (they're scary).
 data PostUI = PostUI Int Editor Editor Editor Editor
 
+-- The default (only) posting UI.
 defPostUI :: PostUI
 defPostUI = PostUI 0 ed1 ed2 ed3 ed4
   where ed1 = editor "subject" (str . unlines) (Just 1) ""
@@ -107,6 +125,7 @@ defPostUI = PostUI 0 ed1 ed2 ed3 ed4
         ed3 = editor "reply" (str . unlines) (Just 1) ""
         ed4 = editor "content" (str . unlines) Nothing ""
 
+-- Get the current (focused) editor of a PostUI.
 currentEditor :: PostUI -> Editor
 currentEditor (PostUI focus ed1 ed2 ed3 ed4) =
     case focus of
@@ -115,6 +134,7 @@ currentEditor (PostUI focus ed1 ed2 ed3 ed4) =
       2 -> ed3
       3 -> ed4
 
+-- Update the current editor of a PostUI.
 updateEditor :: PostUI -> Editor -> PostUI
 updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
     case focus of
@@ -123,6 +143,7 @@ updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
       2 -> PostUI focus ed1 ed2 ed ed4
       3 -> PostUI focus ed1 ed2 ed3 ed
 
+-- Render a PostUI.
 renderPostUI :: PostUI -> Widget
 renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
     vBox [ (padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save") <+>
@@ -135,12 +156,18 @@ renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
          , vLimit 35 . hLimit 150 $ renderEditor ed4
          ]
 
+-- Our application state. The only reason this isn't just Page is because
+-- you have to keep track of the sqlite database connection.
 data AppState = AppState Page Connection
 
+-- Construct the homepage dialog.
+-- TODO: Make this just take a Connection and automatically get the boards
+-- and the name of the chan.
 homepageDialog :: [String] -> String -> Dialog String
 homepageDialog xs name = dialog "boardselect" (Just name) (Just (0, choices)) 50
   where choices = zip xs xs
 
+-- Draw the AppState.
 drawUI :: AppState -> [Widget]
 drawUI (AppState (Homepage d) _) =
     [renderDialog d . hCenter . padAll 1 $ str ""]
@@ -154,6 +181,8 @@ drawUI (AppState (ViewBoard _ xs Nothing) _) =
 drawUI (AppState (ViewBoard _ _ (Just ui)) _) =
     [ center $ renderPostUI ui ]
 
+-- This handles events, and boy oh boy, does it just do it in the least
+-- elegant looking way possible.
 appEvent :: AppState -> Event -> EventM (Next AppState)
 appEvent st@(AppState (Homepage d) conn) ev =
     case ev of
@@ -219,10 +248,13 @@ appEvent st@(AppState (ViewBoard board xs (Just ui@(PostUI focus ed1 ed2 ed3 ed4
         listToMaybe' [] = Nothing
         listToMaybe' xs = Just xs
 
+-- This dictates where the cursor goes. Note that we don't give a shit
+-- unless we're making a post.
 appCursor :: AppState -> [CursorLocation] -> Maybe CursorLocation
 appCursor (AppState (ViewBoard _ _ (Just ui)) _) = showCursorNamed (editorName $ currentEditor ui)
 appCursor st                                     = showFirstCursor st
 
+-- The attribute map.
 theMap :: AttrMap
 theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
                          , (buttonAttr, black `on` white)
@@ -230,6 +262,7 @@ theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
                          , (editAttr, black `on` white)
                          ]
 
+-- The application itself, in all it's glory.
 theApp :: App AppState Event
 theApp =
     App { appDraw         = drawUI
@@ -240,6 +273,7 @@ theApp =
         , appLiftVtyEvent = id
         }
 
+-- TODO: Shorten line 283 holy shit
 main :: IO ()
 main = do
     name     <- init <$> readFile "name.txt"
