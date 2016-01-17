@@ -277,11 +277,7 @@ appEvent st@(AppState (ViewBoard board xs selected) conn) ev =
         d <- liftIO $ homepageDialog conn
         continue (AppState (Homepage d) conn)
       EvKey (KChar 'p') [MCtrl] ->
-        if null xs
-          then continue (AppState (MakePost board $ newPostUI Nothing Nothing) conn)
-          else let id = (\(Thread op _) -> (\(Post _ _ _ id _) -> id) op) (xs !! selected)
-               in continue (AppState (MakePost board $ newPostUI (Just id) Nothing) conn)
-      _                         -> continue st
+        continue (AppState (MakePost board $ newPostUI Nothing Nothing) conn)
 
 appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
     case ev of
