@@ -183,8 +183,9 @@ drawUI (AppState (ViewBoard _ xs) _) =
     [hCenter instructions <=> renderThreads xs]
   where instructions = hBox . map (padLeftRight 10) $
                            [ str "Ctrl+P to make a post"
-                           , str "Esc to disconnect"
                            , str "Ctrl+Z to return to the homepage"
+                           , str "Ctrl+R to refresh page"
+                           , str "Esc to disconnect"
                            ]
 drawUI (AppState (MakePost _ ui) _) = [center $ renderPostUI ui]
 
@@ -217,6 +218,9 @@ appEvent st@(AppState (ViewBoard board xs) conn) ev =
       EvKey KDown []            -> do
         vScrollBy (viewportScroll "threads") 5
         continue st
+      EvKey (KChar 'r') [MCtrl] -> do
+        xs' <- liftIO $ getThreads conn board
+        continue (AppState (ViewBoard board xs') conn)
       EvKey (KChar 'z') [MCtrl] -> do
         d <- liftIO $ homepageDialog conn
         continue (AppState (Homepage d) conn)
