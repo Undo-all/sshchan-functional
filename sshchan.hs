@@ -6,10 +6,12 @@ import Brick
 import Data.Time
 import Data.Maybe
 import Data.String
+import Data.Monoid
 import Data.Text (Text)
 import Brick.Widgets.Edit
 import Graphics.Vty.Image
 import Control.Monad.Trans
+import Data.Vector (Vector)
 import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Brick.Widgets.Dialog
@@ -18,6 +20,7 @@ import Text.Read (readMaybe)
 import Database.SQLite.Simple
 import qualified Data.Text as T
 import Graphics.Vty.Input.Events
+import qualified Data.Vector as V
 import Database.SQLite.Simple.FromField
 
 -- Posts hold posts!
@@ -73,6 +76,18 @@ getReplies conn id board =
                                 , " ORDER BY post_id ASC"
                                 ]
 
+getThread :: Connection -> Int -> Int -> IO Thread
+getThread conn board id = do
+    [op]    <- query_ conn (Query queryOp)
+    replies <- getReplies conn board id
+    return (Thread op replies)
+  where queryOp = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
+                             \, post_content FROM posts WHERE post_id = "
+                           , T.pack (show id)
+                           , " AND post_board = "
+                           , T.pack (show board)
+                           ]
+
 -- Get the threads on a board.
 getThreads :: Connection -> Int -> IO [Thread]
 getThreads conn board = do
@@ -86,9 +101,15 @@ getThreads conn board = do
                             , " ORDER BY post_last_bumped DESC"
                             ]
 
+postAttr :: AttrName
+postAttr = "post"
+
+postSelectedAttr :: AttrName
+postSelectedAttr = postAttr <> "selected"
+
 -- Renders a post.
-renderPost :: Post -> Widget
-renderPost (Post subject name date id content) =
+renderPost :: Bool -> Post -> Widget
+renderPost selected (Post subject name date id content) =
     let renderSubject =
           raw . string (Attr (SetTo bold) (SetTo blue) Default) . T.unpack
         subjectInfo   = maybe emptyWidget renderSubject subject
@@ -99,38 +120,58 @@ renderPost (Post subject name date id content) =
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
         info          = hBox $ map (padRight (Pad 1)) allInfo
         body          = vBox . map txt . T.splitOn "\\n" $ content
-    in border . padRight Max $ padBottom (Pad 1) info <=> body
+    in withDefAttr (if selected then postSelectedAttr else postAttr) . border . padRight Max $ padBottom (Pad 1) info <=> body
 
 -- Render several posts.
 renderPosts :: [Post] -> Widget
-renderPosts = vBox . map renderPost
+renderPosts = vBox . map (renderPost False)
 
--- Render a thread.
-renderThread :: Thread -> Widget
-renderThread (Thread op xs) =
-    renderPost op <=> padLeft (Pad 2) (renderPosts xs)
+-- Render a thread 
+renderThread :: Int -> Thread -> Widget
+renderThread selected (Thread op xs)
+    | selected == (-1) = renderPost False op <=> padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
+    | selected == 0    = visible (renderPost True op) <=> padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
+    | otherwise        = renderPost False op <=> padLeft (Pad 2) (vBox . map render . indexes $ xs)
+  where indexes xs = zip xs [0..length xs - 1]
+        render (post, index)
+            | index + 1 == selected = visible (renderPost True post)
+            | otherwise             = renderPost False post
 
 -- Render several threads (these comments are helpful, aren't they?)
-renderThreads :: [Thread] -> Widget
-renderThreads = viewport "threads" Vertical . vBox . map renderThread
+renderThreads :: Int -> [Thread] -> Widget
+renderThreads selected =
+    viewport "threads" Vertical . vBox . map render . indexes
+  where indexes xs = zip xs [0..length xs - 1]
+        render (thread, index)
+            | index == selected = renderThread 0 thread
+            | otherwise         = renderThread (-1) thread
 
 -- This stores what page you're on.
 data Page = Homepage (Dialog String)
-          | ViewBoard Int [Thread] 
+          | ViewBoard Int [Thread] Int
+          | ViewThread Int Int Thread Int
           | MakePost Int PostUI
+
+selectNext :: Int -> Int -> Int
+selectNext x 0 = 0
+selectNext x n = (x+1) `mod` n
+
+selectPrev :: Int -> Int -> Int
+selectPrev x 0 = 0
+selectPrev x n = (x-1) `mod` n
 
 -- The posting UI, in all it's fanciness.
 -- I use an integer to store what editor is currently selected because
 -- I don't wanna learn how to use lenses (they're scary).
 data PostUI = PostUI Int Editor Editor Editor Editor
 
--- The default (only) posting UI.
-defPostUI :: PostUI
-defPostUI = PostUI 0 ed1 ed2 ed3 ed4
+-- Create a PostUI with optional replies.
+newPostUI :: Maybe Int -> Maybe Int -> PostUI
+newPostUI id reply = PostUI 0 ed1 ed2 ed3 ed4
   where ed1 = editor "subject" (str . unlines) (Just 1) ""
         ed2 = editor "name" (str . unlines) (Just 1) ""
-        ed3 = editor "reply" (str . unlines) (Just 1) ""
-        ed4 = editor "content" (str . unlines) Nothing ""
+        ed3 = editor "reply" (str . unlines) (Just 1) (maybe "" show id)
+        ed4 = editor "content" (str . unlines) Nothing (maybe "" ((">>"++) . show) reply)
 
 -- Get the current (focused) editor of a PostUI.
 currentEditor :: PostUI -> Editor
@@ -175,18 +216,22 @@ homepageDialog conn = do
         choices = zip xs xs 
     return $ dialog "boardselect" (Just name) (Just (0, choices)) 50
 
+instructions :: Widget
+instructions = hBox . map (padLeftRight 10) $
+                   [ str "Ctrl+P to make a post"
+                   , str "Ctrl+Z to go back"
+                   , str "Ctrl+R to refresh page"
+                   , str "Esc to disconnect"
+                   ]
+
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
 drawUI (AppState (Homepage d) _) =
     [renderDialog d . hCenter . padAll 1 $ str ""]
-drawUI (AppState (ViewBoard _ xs) _) =
-    [hCenter instructions <=> renderThreads xs]
-  where instructions = hBox . map (padLeftRight 10) $
-                           [ str "Ctrl+P to make a post"
-                           , str "Ctrl+Z to return to the homepage"
-                           , str "Ctrl+R to refresh page"
-                           , str "Esc to disconnect"
-                           ]
+drawUI (AppState (ViewBoard _ xs selected) _) =
+    [hCenter instructions <=> renderThreads selected xs]
+drawUI (AppState (ViewThread _ _ thread selected) _) =
+    [hCenter instructions <=> renderThread selected thread]
 drawUI (AppState (MakePost _ ui) _) = [center $ renderPostUI ui]
 
 -- This handles events, and boy oh boy, does it just do it in the least
@@ -205,35 +250,67 @@ appEvent st@(AppState (Homepage d) conn) ev =
                                     , T.pack (show name)
                                     ]
                   xs <- liftIO $ getThreads conn board
-                  continue (AppState (ViewBoard board xs) conn)
+                  continue (AppState (ViewBoard board xs 0) conn)
       _               ->
         handleEvent ev d >>= continue . (\d -> AppState (Homepage d) conn)
 
-appEvent st@(AppState (ViewBoard board xs) conn) ev =
+appEvent st@(AppState (ViewBoard board xs selected) conn) ev =
     case ev of
       EvKey KEsc []             -> halt st
-      EvKey KUp []              -> do
-        vScrollBy (viewportScroll "threads") (-5)
-        continue st
-      EvKey KDown []            -> do
-        vScrollBy (viewportScroll "threads") 5
-        continue st
+      EvKey KHome []            ->
+        continue (AppState (ViewBoard board xs 0) conn)
+      EvKey KEnd []             ->
+        continue (AppState (ViewBoard board xs (length xs - 1)) conn)
+      EvKey KUp []              -> 
+        continue (AppState (ViewBoard board xs (selectNext selected (length xs))) conn)
+      EvKey KDown []            -> 
+        continue (AppState (ViewBoard board xs (selectPrev selected (length xs))) conn)
+      EvKey KEnter []           -> do
+        let id = (\(Thread op _) -> (\(Post _ _ _ n _) -> n) op) (xs !! selected)
+        thread <- liftIO $ getThread conn board id
+        continue (AppState (ViewThread board id thread 0) conn)
       EvKey (KChar 'r') [MCtrl] -> do
         xs' <- liftIO $ getThreads conn board
-        continue (AppState (ViewBoard board xs') conn)
+        continue (AppState (ViewBoard board xs' 0) conn)
       EvKey (KChar 'z') [MCtrl] -> do
         d <- liftIO $ homepageDialog conn
         continue (AppState (Homepage d) conn)
       EvKey (KChar 'p') [MCtrl] ->
-        continue (AppState (MakePost board $ defPostUI) conn)
+        let id = (\(Thread op _) -> (\(Post _ _ _ id _) -> id) op) (xs !! selected)
+        in continue (AppState (MakePost board $ newPostUI (Just id) Nothing) conn)
       _                         -> continue st
+
+appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
+    case ev of
+      EvKey KEsc []             -> halt st
+      EvKey KHome []            ->
+        continue (AppState (ViewThread board id thread 0) conn)
+      EvKey KEnd []             ->
+        continue (AppState (ViewThread board id thread $ (\(Thread _ xs) -> length xs + 1) thread) conn)
+      EvKey KUp []              -> 
+        continue (AppState (ViewThread board id thread (selectPrev selected $ (\(Thread _ xs) -> length xs + 1) thread)) conn)
+      EvKey KDown []            ->
+        continue (AppState (ViewThread board id thread (selectNext selected $ (\(Thread _ xs) -> length xs + 1) thread)) conn)
+      EvKey (KChar 'r') [MCtrl] -> do
+        thread' <- liftIO $ getThread conn board id
+        continue (AppState (ViewThread board id thread' selected) conn)
+      EvKey (KChar 'z') [MCtrl] -> do
+        xs <- liftIO $ getThreads conn board
+        continue (AppState (ViewBoard board xs 0) conn)
+      EvKey (KChar 'p') [MCtrl] -> do
+        continue (AppState (MakePost board (newPostUI (Just id) Nothing)) conn)
+      EvKey KEnter []           -> do
+        let reply = if selected == 0
+                      then Nothing
+                      else Just $ (\(Post _ _ _ id _) -> id) (((\(Thread _ xs) -> xs) thread) !! (selected-1))
+        continue (AppState (MakePost board (newPostUI (Just id) reply)) conn)
 
 appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey (KChar 'c') [MCtrl] -> do
         xs <- liftIO $ getThreads conn board
-        continue (AppState (ViewBoard board xs) conn)
+        continue (AppState (ViewBoard board xs 0) conn)
       EvKey (KChar 's') [MCtrl] ->
         if null (getEditContents ed4) || all null (getEditContents ed4)
           then continue st
@@ -245,7 +322,7 @@ appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) e
                in do liftIO $ makePost conn subject name (T.stripEnd content) 
                               board reply
                      xs' <- liftIO $ getThreads conn board 
-                     continue (AppState (ViewBoard board xs') conn)
+                     continue (AppState (ViewBoard board xs' 0) conn)
       EvKey (KChar '\t') [] ->
         continue (AppState (MakePost board
                               (PostUI ((focus+1) `mod` 4)
@@ -270,6 +347,8 @@ theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
                          , (buttonAttr, black `on` white)
                          , (buttonSelectedAttr, bg yellow)
                          , (editAttr, black `on` white)
+                         , (postAttr, defAttr)
+                         , (postSelectedAttr, white `on` black)
                          ]
 
 -- The application itself, in all it's glory.
