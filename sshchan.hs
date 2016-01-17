@@ -171,7 +171,7 @@ newPostUI id reply = PostUI 0 ed1 ed2 ed3 ed4
   where ed1 = editor "subject" (str . unlines) (Just 1) ""
         ed2 = editor "name" (str . unlines) (Just 1) ""
         ed3 = editor "reply" (str . unlines) (Just 1) (maybe "" show id)
-        ed4 = editor "content" (str . unlines) Nothing (maybe "" ((">>"++) . show) reply)
+        ed4 = editor "content" (str . unlines) Nothing (maybe "" ((++"\n") . (">>"++) . show) reply)
 
 -- Get the current (focused) editor of a PostUI.
 currentEditor :: PostUI -> Editor
