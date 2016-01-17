@@ -79,7 +79,7 @@ getReplies conn id board =
 getThread :: Connection -> Int -> Int -> IO Thread
 getThread conn board id = do
     [op]    <- query_ conn (Query queryOp)
-    replies <- getReplies conn board id
+    replies <- getReplies conn id board
     return (Thread op replies)
   where queryOp = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
                              \, post_content FROM posts WHERE post_id = "
@@ -268,6 +268,7 @@ appEvent st@(AppState (ViewBoard board xs selected) conn) ev =
       EvKey KEnter []           -> do
         let id = (\(Thread op _) -> (\(Post _ _ _ n _) -> n) op) (xs !! selected)
         thread <- liftIO $ getThread conn board id
+        liftIO $ writeFile "thread.txt" (show thread)
         continue (AppState (ViewThread board id thread 0) conn)
       EvKey (KChar 'r') [MCtrl] -> do
         xs' <- liftIO $ getThreads conn board
