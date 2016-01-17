@@ -13,6 +13,7 @@ import Control.Monad.Trans
 import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Brick.Widgets.Dialog
+import Control.Monad (when)
 import Text.Read (readMaybe)
 import Database.SQLite.Simple
 import qualified Data.Text as T
@@ -43,13 +44,20 @@ showNull (Just x) = T.pack (show x)
 
 -- Make a post (ofc)
 makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
-makePost conn subject name content board reply = execute_ conn (Query post)
-  where post = T.concat [ "INSERT INTO posts VALUES(NULL,date('now'),"
+makePost conn subject name content board reply = do
+    execute_ conn (Query post)
+    when (isJust reply) $
+      execute_ conn (Query bump)
+  where post = T.concat [ "INSERT INTO posts VALUES(NULL,date('now'),datetime('now'),"
                         , showNull subject, ","
                         , showNull name, ","
                         , T.pack (show content), ","
                         , T.pack (show board), ","
                         , showNull reply, ");"
+                        ]
+        bump = T.concat [ "UPDATE posts SET post_last_bumped = datetime('now')\
+                          \WHERE post_id = "
+                        , T.pack (show $ fromMaybe undefined reply)
                         ]
 
 -- Fetch the replies to a post (slow?)
@@ -75,7 +83,7 @@ getThreads conn board = do
                               \, post_content FROM posts WHERE post_reply IS\
                               \ NULL AND post_board = "
                             , T.pack (show board)
-                            , " ORDER BY post_id DESC"
+                            , " ORDER BY post_last_bumped DESC"
                             ]
 
 -- Renders a post.
