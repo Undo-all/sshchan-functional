@@ -107,10 +107,9 @@ renderThreads :: [Thread] -> Widget
 renderThreads = viewport "threads" Vertical . vBox . map renderThread
 
 -- This stores what page you're on.
--- TODO: make PostUI it's own page instead of this wack-ass bullshit where
--- it's part of the ViewBoard page.
 data Page = Homepage (Dialog String)
-          | ViewBoard Int [Thread] (Maybe PostUI)
+          | ViewBoard Int [Thread] 
+          | MakePost Int PostUI
 
 -- The posting UI, in all it's fanciness.
 -- I use an integer to store what editor is currently selected because
@@ -155,7 +154,6 @@ renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
                ]
          , vLimit 35 . hLimit 150 $ renderEditor ed4
          ]
-
 -- Our application state. The only reason this isn't just Page is because
 -- you have to keep track of the sqlite database connection.
 data AppState = AppState Page Connection
@@ -173,15 +171,14 @@ homepageDialog conn = do
 drawUI :: AppState -> [Widget]
 drawUI (AppState (Homepage d) _) =
     [renderDialog d . hCenter . padAll 1 $ str ""]
-drawUI (AppState (ViewBoard _ xs Nothing) _) =
+drawUI (AppState (ViewBoard _ xs) _) =
     [hCenter instructions <=> renderThreads xs]
   where instructions = hBox . map (padLeftRight 10) $
                            [ str "Ctrl+P to make a post"
                            , str "Esc to disconnect"
                            , str "Ctrl+Z to return to the homepage"
                            ]
-drawUI (AppState (ViewBoard _ _ (Just ui)) _) =
-    [ center $ renderPostUI ui ]
+drawUI (AppState (MakePost _ ui) _) = [center $ renderPostUI ui]
 
 -- This handles events, and boy oh boy, does it just do it in the least
 -- elegant looking way possible.
@@ -199,10 +196,11 @@ appEvent st@(AppState (Homepage d) conn) ev =
                                     , T.pack (show name)
                                     ]
                   xs <- liftIO $ getThreads conn board
-                  continue (AppState (ViewBoard board xs Nothing) conn)
-      _               -> handleEvent ev d >>= continue . (\d -> AppState (Homepage d) conn)
+                  continue (AppState (ViewBoard board xs) conn)
+      _               ->
+        handleEvent ev d >>= continue . (\d -> AppState (Homepage d) conn)
 
-appEvent st@(AppState (ViewBoard board xs Nothing) conn) ev =
+appEvent st@(AppState (ViewBoard board xs) conn) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey KUp []              -> do
@@ -215,14 +213,15 @@ appEvent st@(AppState (ViewBoard board xs Nothing) conn) ev =
         d <- liftIO $ homepageDialog conn
         continue (AppState (Homepage d) conn)
       EvKey (KChar 'p') [MCtrl] ->
-        continue (AppState (ViewBoard board xs (Just defPostUI)) conn)
+        continue (AppState (MakePost board $ defPostUI) conn)
       _                         -> continue st
 
-appEvent st@(AppState (ViewBoard board xs (Just ui@(PostUI focus ed1 ed2 ed3 ed4))) conn) ev =
+appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) ev =
     case ev of
       EvKey KEsc []             -> halt st
-      EvKey (KChar 'c') [MCtrl] ->
-        continue (AppState (ViewBoard board xs Nothing) conn)
+      EvKey (KChar 'c') [MCtrl] -> do
+        xs <- liftIO $ getThreads conn board
+        continue (AppState (ViewBoard board xs) conn)
       EvKey (KChar 's') [MCtrl] ->
         if null (getEditContents ed4) || all null (getEditContents ed4)
           then continue st
@@ -234,16 +233,15 @@ appEvent st@(AppState (ViewBoard board xs (Just ui@(PostUI focus ed1 ed2 ed3 ed4
                in do liftIO $ makePost conn subject name (T.stripEnd content) 
                               board reply
                      xs' <- liftIO $ getThreads conn board 
-                     continue (AppState (ViewBoard board xs' Nothing) conn)
+                     continue (AppState (ViewBoard board xs') conn)
       EvKey (KChar '\t') [] ->
-        continue (AppState (ViewBoard board xs 
-                              (Just (PostUI ((focus+1) `mod` 4)
-                                     ed1 ed2 ed3 ed4)))
+        continue (AppState (MakePost board
+                              (PostUI ((focus+1) `mod` 4)
+                                      ed1 ed2 ed3 ed4))
                            conn)
       _                         -> do
         ed <- handleEvent ev (currentEditor ui)
-        continue (AppState (ViewBoard board xs (Just (updateEditor ui ed)))
-                           conn)
+        continue (AppState (MakePost board (updateEditor ui ed)) conn)
   where readInt x       = readMaybe x :: Maybe Int
         listToMaybe' [] = Nothing
         listToMaybe' xs = Just xs
@@ -251,8 +249,8 @@ appEvent st@(AppState (ViewBoard board xs (Just ui@(PostUI focus ed1 ed2 ed3 ed4
 -- This dictates where the cursor goes. Note that we don't give a shit
 -- unless we're making a post.
 appCursor :: AppState -> [CursorLocation] -> Maybe CursorLocation
-appCursor (AppState (ViewBoard _ _ (Just ui)) _) = showCursorNamed (editorName $ currentEditor ui)
-appCursor st                                     = showFirstCursor st
+appCursor (AppState (MakePost _ ui) _) = showCursorNamed (editorName $ currentEditor ui)
+appCursor st                           = showFirstCursor st
 
 -- The attribute map.
 theMap :: AttrMap
