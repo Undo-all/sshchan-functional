@@ -299,6 +299,7 @@ appEvent st@(AppState (ViewBoard board xs selected) conn) ev =
         continue (AppState (Homepage d) conn)
       EvKey (KChar 'p') [MCtrl] ->
         continue (AppState (MakePost board $ newPostUI Nothing Nothing) conn)
+      _                         -> continue st
   where len = length xs
 
 appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
@@ -328,7 +329,8 @@ appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
         let reply = if selected == 0
                       then Nothing
                       else Just $ postID (threadReplies thread !! (selected-1))
-        continue (AppState (MakePost board (newPostUI (Just id) reply)) conn)
+        continue (AppState (MakePost board $ newPostUI (Just id) reply) conn)
+      _                         -> continue st
   where len = length (threadReplies thread) + 1
 
 appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) ev =
