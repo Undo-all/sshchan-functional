@@ -323,7 +323,7 @@ appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
       EvKey (KChar 'z') [MCtrl] -> do
         xs <- liftIO $ getThreads conn board
         continue (AppState (ViewBoard board xs 0) conn)
-      EvKey (KChar 'p') [MCtrl] -> do
+      EvKey (KChar 'p') [MCtrl] -> 
         continue (AppState (MakePost board (newPostUI (Just id) Nothing)) conn)
       EvKey KEnter []           -> do
         let reply = if selected == 0
