@@ -11,7 +11,6 @@ import Data.Text (Text)
 import Brick.Widgets.Edit
 import Graphics.Vty.Image
 import Control.Monad.Trans
-import Data.Vector (Vector)
 import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Brick.Widgets.Dialog
@@ -20,6 +19,7 @@ import Text.Read (readMaybe)
 import Database.SQLite.Simple
 import qualified Data.Text as T
 import Graphics.Vty.Input.Events
+import Brick.Widgets.Border.Style
 import qualified Data.Vector as V
 import Database.SQLite.Simple.FromField
 
@@ -108,14 +108,6 @@ getThreads conn board = do
                             , " ORDER BY post_last_bumped DESC"
                             ]
 
--- Attribute for posts...
-postAttr :: AttrName
-postAttr = "post"
-
--- ...and selected posts.
-postSelectedAttr :: AttrName
-postSelectedAttr = postAttr <> "selected"
-
 -- Renders a post.
 renderPost :: Bool -> Post -> Widget
 renderPost selected (Post subject name date id content) =
@@ -129,8 +121,8 @@ renderPost selected (Post subject name date id content) =
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
         info          = hBox $ map (padRight (Pad 1)) allInfo
         body          = vBox . map txt . T.splitOn "\\n" $ content
-        attr          = if selected then postSelectedAttr else postAttr
-    in withDefAttr attr . border . padRight Max $
+        borderStyle   = if selected then unicodeBold else unicode
+    in withBorderStyle borderStyle . border . padRight Max $
            padBottom (Pad 1) info <=> body
 
 -- Render several posts.
@@ -375,8 +367,6 @@ theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
                          , (buttonAttr, black `on` white)
                          , (buttonSelectedAttr, bg yellow)
                          , (editAttr, black `on` white)
-                         , (postAttr, defAttr)
-                         , (postSelectedAttr, white `on` black)
                          ]
 
 -- The application itself, in all it's glory.
