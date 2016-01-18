@@ -24,8 +24,13 @@ import qualified Data.Vector as V
 import Database.SQLite.Simple.FromField
 
 -- Posts hold posts!
-data Post = Post (Maybe Text) (Maybe Text) Day Int Text
-          deriving (Eq, Show)
+data Post = Post
+          { postSubject :: Maybe Text
+          , postBy :: Maybe Text 
+          , postDate :: Day 
+          , postID :: Int 
+          , postContent :: Text
+          } deriving (Eq, Show)
 
 -- There's definitely a cleaner way to do this...
 instance FromRow Post where
@@ -37,8 +42,10 @@ instance FromRow Post where
                  return $ Post subject name date id content
 
 -- Threads hold threads!
-data Thread = Thread Post [Post]
-            deriving (Eq, Show)
+data Thread = Thread 
+            { threadOP :: Post 
+            , threadReplies :: [Post]
+            } deriving (Eq, Show)
 
 -- Converts a Maybe value into a SQL value.
 showNull :: Show a => Maybe a -> Text
@@ -101,9 +108,11 @@ getThreads conn board = do
                             , " ORDER BY post_last_bumped DESC"
                             ]
 
+-- Attribute for posts...
 postAttr :: AttrName
 postAttr = "post"
 
+-- ...and selected posts.
 postSelectedAttr :: AttrName
 postSelectedAttr = postAttr <> "selected"
 
@@ -120,7 +129,9 @@ renderPost selected (Post subject name date id content) =
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
         info          = hBox $ map (padRight (Pad 1)) allInfo
         body          = vBox . map txt . T.splitOn "\\n" $ content
-    in withDefAttr (if selected then postSelectedAttr else postAttr) . border . padRight Max $ padBottom (Pad 1) info <=> body
+        attr          = if selected then postSelectedAttr else postAttr
+    in withDefAttr attr . border . padRight Max $
+           padBottom (Pad 1) info <=> body
 
 -- Render several posts.
 renderPosts :: [Post] -> Widget
@@ -129,9 +140,12 @@ renderPosts = vBox . map (renderPost False)
 -- Render a thread 
 renderThread :: Int -> Thread -> Widget
 renderThread selected (Thread op xs)
-    | selected == (-1) = renderPost False op <=> padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
-    | selected == 0    = visible (renderPost True op) <=> padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
-    | otherwise        = renderPost False op <=> padLeft (Pad 2) (vBox . map render . indexes $ xs)
+    | selected == (-1) = renderPost False op <=>
+                         padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
+    | selected == 0    = visible (renderPost True op) <=>
+                         padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
+    | otherwise        = renderPost False op <=>
+                         padLeft (Pad 2) (vBox . map render . indexes $ xs)
   where indexes xs = zip xs [0..length xs - 1]
         render (post, index)
             | index + 1 == selected = visible (renderPost True post)
@@ -152,6 +166,9 @@ data Page = Homepage (Dialog String)
           | ViewThread Int Int Thread Int
           | MakePost Int PostUI
 
+-- In any selection in a series, the index needs to loop around when it is
+-- greater than the length of the series. These are helper functions to do
+-- that.
 selectNext :: Int -> Int -> Int
 selectNext x 0 = 0
 selectNext x n = (x+1) `mod` n
@@ -260,13 +277,13 @@ appEvent st@(AppState (ViewBoard board xs selected) conn) ev =
       EvKey KHome []            ->
         continue (AppState (ViewBoard board xs 0) conn)
       EvKey KEnd []             ->
-        continue (AppState (ViewBoard board xs (length xs - 1)) conn)
+        continue (AppState (ViewBoard board xs len) conn)
       EvKey KUp []              -> 
-        continue (AppState (ViewBoard board xs (selectNext selected (length xs))) conn)
+        continue (AppState (ViewBoard board xs (selectNext selected len)) conn)
       EvKey KDown []            -> 
-        continue (AppState (ViewBoard board xs (selectPrev selected (length xs))) conn)
+        continue (AppState (ViewBoard board xs (selectPrev selected len)) conn)
       EvKey KEnter []           -> do
-        let id = (\(Thread op _) -> (\(Post _ _ _ n _) -> n) op) (xs !! selected)
+        let id = postID . threadOP $ xs !! selected
         thread <- liftIO $ getThread conn board id
         liftIO $ writeFile "thread.txt" (show thread)
         continue (AppState (ViewThread board id thread 0) conn)
@@ -278,6 +295,7 @@ appEvent st@(AppState (ViewBoard board xs selected) conn) ev =
         continue (AppState (Homepage d) conn)
       EvKey (KChar 'p') [MCtrl] ->
         continue (AppState (MakePost board $ newPostUI Nothing Nothing) conn)
+  where len = length xs
 
 appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
     case ev of
@@ -285,11 +303,15 @@ appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
       EvKey KHome []            ->
         continue (AppState (ViewThread board id thread 0) conn)
       EvKey KEnd []             ->
-        continue (AppState (ViewThread board id thread $ (\(Thread _ xs) -> length xs + 1) thread) conn)
+        continue (AppState (ViewThread board id thread len) conn)
       EvKey KUp []              -> 
-        continue (AppState (ViewThread board id thread (selectPrev selected $ (\(Thread _ xs) -> length xs + 1) thread)) conn)
+        continue $ AppState 
+                     (ViewThread board id thread (selectPrev selected len))
+                     conn
       EvKey KDown []            ->
-        continue (AppState (ViewThread board id thread (selectNext selected $ (\(Thread _ xs) -> length xs + 1) thread)) conn)
+        continue $ AppState
+                     (ViewThread board id thread (selectNext selected len))
+                     conn
       EvKey (KChar 'r') [MCtrl] -> do
         thread' <- liftIO $ getThread conn board id
         continue (AppState (ViewThread board id thread' selected) conn)
@@ -301,8 +323,9 @@ appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
       EvKey KEnter []           -> do
         let reply = if selected == 0
                       then Nothing
-                      else Just $ (\(Post _ _ _ id _) -> id) (((\(Thread _ xs) -> xs) thread) !! (selected-1))
+                      else Just $ postID (threadReplies thread !! (selected-1))
         continue (AppState (MakePost board (newPostUI (Just id) reply)) conn)
+  where len = length (threadReplies thread) + 1
 
 appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) ev =
     case ev of
