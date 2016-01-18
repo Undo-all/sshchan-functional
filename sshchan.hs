@@ -185,10 +185,12 @@ data PostUI = PostUI Int Editor Editor Editor Editor
 -- Create a PostUI with optional replies.
 newPostUI :: Maybe Int -> Maybe Int -> PostUI
 newPostUI id reply = PostUI 0 ed1 ed2 ed3 ed4
-  where ed1 = editor "subject" (str . unlines) (Just 1) ""
-        ed2 = editor "name" (str . unlines) (Just 1) ""
-        ed3 = editor "reply" (str . unlines) (Just 1) (maybe "" show id)
-        ed4 = editor "content" (str . unlines) Nothing (maybe "" ((++"\n") . (">>"++) . show) reply)
+  where ed1       = editor "subject" render (Just 1) ""
+        ed2       = editor "name" render (Just 1) ""
+        ed3       = editor "reply" render (Just 1) (maybe "" show id)
+        ed4       = editor "content" render Nothing (maybe "" mkReply reply)
+        render    = str . unlines
+        mkReply n = ">>" ++ show n ++ "\n"
 
 -- Get the current (focused) editor of a PostUI.
 currentEditor :: PostUI -> Editor
@@ -211,15 +213,17 @@ updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
 -- Render a PostUI.
 renderPostUI :: PostUI -> Widget
 renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
-    vBox [ (padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save") <+>
-            padBottom (Pad 1) (str "Ctrl+C to cancel")
-         , vLimit 35 . hLimit 150 . padBottom (Pad 1) $ hBox
-               [ str "Subject: ", renderEditor ed1
-               , padLeft (Pad 1) $ str "Name: ", renderEditor ed2
-               , padLeft (Pad 1) $ str "Reply to: ", renderEditor ed3
-               ]
-         , vLimit 35 . hLimit 150 $ renderEditor ed4
-         ]
+    vBox [ info, fields, content ]
+  where save    = padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
+        cancel  = padBottom (Pad 1) $ str "Ctrl+C to cancel"
+        info    = save <+> cancel
+        editors = [ str "Subject: ", renderEditor ed1
+                  , padLeft (Pad 1) $ str "Name: ", renderEditor ed2
+                  , padLeft (Pad 1) $ str "Reply to: ", renderEditor ed3
+                  ] 
+        fields  = vLimit 35 . hLimit 150 . padBottom (Pad 1) . hBox $ editors
+        content = vLimit 35 . hLimit 150 $ renderEditor ed4
+
 -- Our application state. The only reason this isn't just Page is because
 -- you have to keep track of the sqlite database connection.
 data AppState = AppState Page Connection
