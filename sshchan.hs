@@ -402,13 +402,13 @@ data Config = Config
             , chanEditAttr :: Attr
             } deriving (Eq, Show, Read)
 
-readCfg :: String -> Either String Config
-readCfg xs =
+readConfig :: String -> Either String Config
+readConfig xs =
     readEither ("Config {" ++ xs ++ "}") :: Either String Config
 
 main :: IO ()
 main = do
-    cfg <- readCfg <$> readFile "chan.cfg"
+    cfg <- readConfig <$> readFile "chan.cfg"
     case cfg of
       Left err  -> putStrLn $ "Error parsing config file " ++ err
       Right cfg -> do
