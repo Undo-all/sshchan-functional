@@ -244,8 +244,11 @@ drawUI (AppState _ Config{ chanHomepageMsg = msg } (Homepage d)) =
     [renderDialog d . hCenter . padAll 1 $ str msg]
 drawUI (AppState _ _ (ViewBoard _ xs selected)) =
     [hCenter instructions <=> renderThreads selected xs]
-drawUI (AppState _ _ (ViewThread _ _ thread selected)) =
-    [hCenter instructions <=> renderThread selected thread]
+drawUI (AppState _ _ (ViewThread _ id thread selected)) =
+    [ hCenter instructions <=>
+      renderThread selected thread <=>
+      padTop Max (hCenter . str $ "Viewing thread No. " ++ show id)
+    ]
 drawUI (AppState _ _ (MakePost _ ui)) = [center $ renderPostUI ui]
 
 -- This handles events, and boy oh boy, does it just do it in the least
@@ -266,7 +269,7 @@ appEvent st@(AppState conn cfg (Homepage d)) ev =
                   xs <- liftIO $ getThreads conn board
                   continue (AppState conn cfg (ViewBoard board xs 0))
       _               ->
-        handleEvent ev d >>= continue . AppState conn cfg . Homepage d
+        handleEvent ev d >>= continue . AppState conn cfg . Homepage
 
 appEvent st@(AppState conn cfg (ViewBoard board xs selected)) ev =
     case ev of
