@@ -224,7 +224,7 @@ data AppState = AppState Connection Config Page
 
 -- Construct the homepage dialog.
 homepageDialog :: Connection -> Config -> IO (Dialog String)
-homepageDialog conn (Config { chanName = name, chanHomepageMsg = msg}) = do
+homepageDialog conn Config{ chanName = name, chanHomepageMsg = msg } = do
     boards <- liftIO $ query_ conn "SELECT board_name FROM boards"
     let xs      = map (\(Only board) -> T.unpack board) boards
         choices = zip xs xs 
@@ -240,7 +240,7 @@ instructions = hBox . map (padLeftRight 10) $
 
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
-drawUI (AppState _ (Config { chanHomepageMsg = msg}) (Homepage d)) =
+drawUI (AppState _ Config{ chanHomepageMsg = msg } (Homepage d)) =
     [renderDialog d . hCenter . padAll 1 $ str msg]
 drawUI (AppState _ _ (ViewBoard _ xs selected)) =
     [hCenter instructions <=> renderThreads selected xs]
@@ -266,7 +266,7 @@ appEvent st@(AppState conn cfg (Homepage d)) ev =
                   xs <- liftIO $ getThreads conn board
                   continue (AppState conn cfg (ViewBoard board xs 0))
       _               ->
-        handleEvent ev d >>= continue . (\d -> AppState conn cfg (Homepage d))
+        handleEvent ev d >>= continue . AppState conn cfg . Homepage d
 
 appEvent st@(AppState conn cfg (ViewBoard board xs selected)) ev =
     case ev of

@@ -130,8 +130,8 @@ main = do
     putStrLn "Welcome to the sshchan-functional admin console."
     putStrLn "At the moment, it encompasses only extremely basic"
     putStrLn "functionality. Type 'help' for a list of commands."
-    name <- (chanName <$> readConfig) <$> readFile "chan.cfg"
-    case name of
+    cfg <- readConfig <$> readFile "chan.cfg"
+    case chanName <$> cfg of
       Left err   -> putStrLn $ "Error parsing config file " ++ err
       Right name -> do
           conn <- open (name ++ ".db")
