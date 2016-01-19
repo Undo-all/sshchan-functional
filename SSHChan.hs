@@ -3,6 +3,7 @@
 module Main where
 
 import Brick
+import Config
 import Data.Time
 import Data.Maybe
 import Data.String
@@ -392,19 +393,6 @@ makeApp cfg =
         , appAttrMap      = const (makeMap cfg)
         , appLiftVtyEvent = id
         }
-
-data Config = Config
-            { chanName :: String
-            , chanHomepageMsg :: String
-            , chanDialogAttr :: Attr
-            , chanButtonAttr :: Attr
-            , chanButtonSelectedAttr :: Attr
-            , chanEditAttr :: Attr
-            } deriving (Eq, Show, Read)
-
-readConfig :: String -> Either String Config
-readConfig xs =
-    readEither ("Config {" ++ xs ++ "}") :: Either String Config
 
 main :: IO ()
 main = do

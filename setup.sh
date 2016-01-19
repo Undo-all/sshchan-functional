@@ -11,8 +11,8 @@ read
 printf "Got them? Good!\n"
 printf "First we'll compile sshchan.\n"
 cabal install mtl text sqlite-simple brick 
-ghc -O3 -threaded sshchan.hs
-ghc -O3 admin.hs
+ghc -O3 -threaded SSHChan.hs Config.hs -o sshchan
+ghc -O3 SSHChan.hs Config.hs -o admin
 printf "Done! Enter your chan's name: "
 read name
 printf "Enter the name of the user your sshchan-functional instance should run on: "
