@@ -4,6 +4,7 @@ module Main where
 
 import Data.Char
 import Data.List
+import System.IO
 import Data.Text (Text)
 import Text.Read (readMaybe)
 import Database.SQLite.Simple
@@ -114,6 +115,7 @@ eval conn x xs =
 repl :: Connection -> IO ()
 repl conn = do
     putStr "> "
+    hFlush stdout
     xs <- getLine
     if all isSpace xs
       then repl conn
