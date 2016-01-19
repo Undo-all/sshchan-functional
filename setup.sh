@@ -27,8 +27,9 @@ sudo mv sshchan "$dir"
 sudo mv admin "$dir"
 cat setup.sql | sudo sqlite3 "$dir/$name.db"
 sudo chown "$user":anons "$dir/$name.db"
-echo "$name" | sudo tee -a "$dir/name.txt"
-printf "\nMatch User $user\n    ForceCommand ./sshchan\n\n    PasswordAuthentication yes\n    AllowTcpForwarding no\n" | sudo tee -a /etc/ssh/sshd_config
+cat defaultConfig.cfg | sudo tee -a "$dir/chan.cfg"
+sudo su -c "sed -i '1s/.*/chanName=\"$name\",/' ~/chan.cfg" "$user"
+printf "\nMatch User $user\n    ForceCommand ./sshchan\n    PasswordAuthentication yes\n    AllowTcpForwarding no\n" | sudo tee -a /etc/ssh/sshd_config
 printf "\nAlmost done! You need to restart ssh. This is done differently on different distros (http://www.cyberciti.biz/faq/howto-restart-ssh/).\n"
 printf "After that's done, you've successfully installed sshchan-functional! Be sure to report any bugs!\n"
 
