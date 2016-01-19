@@ -15,13 +15,13 @@ import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Brick.Widgets.Dialog
 import Control.Monad (when)
-import Text.Read (readMaybe)
 import Database.SQLite.Simple
 import qualified Data.Text as T
 import Graphics.Vty.Input.Events
 import Brick.Widgets.Border.Style
 import qualified Data.Vector as V
 import Database.SQLite.Simple.FromField
+import Text.Read (readMaybe, readEither)
 
 -- Posts hold posts!
 data Post = Post
@@ -217,13 +217,13 @@ renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
         content = vLimit 35 . hLimit 150 $ renderEditor ed4
 
 -- Our application state. The only reason this isn't just Page is because
--- you have to keep track of the sqlite database connection.
-data AppState = AppState Page Connection
+-- you have to keep track of the sqlite database connection and the
+-- configuration.
+data AppState = AppState Page Connection Config
 
 -- Construct the homepage dialog.
-homepageDialog :: Connection -> IO (Dialog String)
-homepageDialog conn = do
-    name   <- liftIO $ init <$> readFile "name.txt"
+homepageDialog :: Connection -> Config -> IO (Dialog String)
+homepageDialog conn (Config { chanName = name, chanHomepageMsg = msg}) = do
     boards <- liftIO $ query_ conn "SELECT board_name FROM boards"
     let xs      = map (\(Only board) -> T.unpack board) boards
         choices = zip xs xs 
@@ -239,18 +239,18 @@ instructions = hBox . map (padLeftRight 10) $
 
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
-drawUI (AppState (Homepage d) _) =
-    [renderDialog d . hCenter . padAll 1 $ str ""]
-drawUI (AppState (ViewBoard _ xs selected) _) =
+drawUI (AppState (Homepage d) _ (Config { chanHomepageMsg = msg})) =
+    [renderDialog d . hCenter . padAll 1 $ str msg]
+drawUI (AppState (ViewBoard _ xs selected) _ _) =
     [hCenter instructions <=> renderThreads selected xs]
-drawUI (AppState (ViewThread _ _ thread selected) _) =
+drawUI (AppState (ViewThread _ _ thread selected) _ _) =
     [hCenter instructions <=> renderThread selected thread]
-drawUI (AppState (MakePost _ ui) _) = [center $ renderPostUI ui]
+drawUI (AppState (MakePost _ ui) _ _) = [center $ renderPostUI ui]
 
 -- This handles events, and boy oh boy, does it just do it in the least
 -- elegant looking way possible.
 appEvent :: AppState -> Event -> EventM (Next AppState)
-appEvent st@(AppState (Homepage d) conn) ev =
+appEvent st@(AppState (Homepage d) conn cfg) ev =
     case ev of
       EvKey KEsc []   -> halt st
       EvKey KEnter [] ->
@@ -263,74 +263,84 @@ appEvent st@(AppState (Homepage d) conn) ev =
                                     , T.pack (show name)
                                     ]
                   xs <- liftIO $ getThreads conn board
-                  continue (AppState (ViewBoard board xs 0) conn)
+                  continue (AppState (ViewBoard board xs 0) conn cfg)
       _               ->
-        handleEvent ev d >>= continue . (\d -> AppState (Homepage d) conn)
+        handleEvent ev d >>= continue . (\d -> AppState (Homepage d) conn cfg)
 
-appEvent st@(AppState (ViewBoard board xs selected) conn) ev =
+appEvent st@(AppState (ViewBoard board xs selected) conn cfg) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey KHome []            ->
-        continue (AppState (ViewBoard board xs 0) conn)
+        continue (AppState (ViewBoard board xs 0) conn cfg)
       EvKey KEnd []             ->
-        continue (AppState (ViewBoard board xs len) conn)
+        continue (AppState (ViewBoard board xs len) conn cfg)
       EvKey KUp []              -> 
-        continue (AppState (ViewBoard board xs (selectNext selected len)) conn)
+        continue $ AppState (ViewBoard board xs (selectNext selected len))
+                            conn
+                            cfg
       EvKey KDown []            -> 
-        continue (AppState (ViewBoard board xs (selectPrev selected len)) conn)
+        continue $ AppState (ViewBoard board xs (selectPrev selected len))
+                            conn
+                            cfg
       EvKey KEnter []           -> do
         let id = postID . threadOP $ xs !! selected
         thread <- liftIO $ getThread conn board id
         liftIO $ writeFile "thread.txt" (show thread)
-        continue (AppState (ViewThread board id thread 0) conn)
+        continue (AppState (ViewThread board id thread 0) conn cfg)
       EvKey (KChar 'r') [MCtrl] -> do
         xs' <- liftIO $ getThreads conn board
-        continue (AppState (ViewBoard board xs' 0) conn)
+        continue (AppState (ViewBoard board xs' 0) conn cfg)
       EvKey (KChar 'z') [MCtrl] -> do
-        d <- liftIO $ homepageDialog conn
-        continue (AppState (Homepage d) conn)
+        d <- liftIO $ homepageDialog conn cfg
+        continue (AppState (Homepage d) conn cfg)
       EvKey (KChar 'p') [MCtrl] ->
-        continue (AppState (MakePost board $ newPostUI Nothing Nothing) conn)
+        continue $ AppState (MakePost board $ newPostUI Nothing Nothing)
+                            conn 
+                            cfg
       _                         -> continue st
   where len = length xs
 
-appEvent st@(AppState (ViewThread board id thread selected) conn) ev =
+appEvent st@(AppState (ViewThread board id thread selected) conn cfg) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey KHome []            ->
-        continue (AppState (ViewThread board id thread 0) conn)
+        continue (AppState (ViewThread board id thread 0) conn cfg)
       EvKey KEnd []             ->
-        continue (AppState (ViewThread board id thread len) conn)
+        continue (AppState (ViewThread board id thread len) conn cfg)
       EvKey KUp []              -> 
         continue $ AppState 
                      (ViewThread board id thread (selectPrev selected len))
                      conn
+                     cfg
       EvKey KDown []            ->
         continue $ AppState
                      (ViewThread board id thread (selectNext selected len))
                      conn
+                     cfg
       EvKey (KChar 'r') [MCtrl] -> do
         thread' <- liftIO $ getThread conn board id
-        continue (AppState (ViewThread board id thread' selected) conn)
+        continue (AppState (ViewThread board id thread' selected) conn cfg)
       EvKey (KChar 'z') [MCtrl] -> do
         xs <- liftIO $ getThreads conn board
-        continue (AppState (ViewBoard board xs 0) conn)
+        continue (AppState (ViewBoard board xs 0) conn cfg)
       EvKey (KChar 'p') [MCtrl] -> 
-        continue (AppState (MakePost board (newPostUI (Just id) Nothing)) conn)
+        continue $ AppState (MakePost board (newPostUI (Just id) Nothing))
+                            conn
+                            cfg
       EvKey KEnter []           -> do
         let reply = if selected == 0
                       then Nothing
                       else Just $ postID (threadReplies thread !! (selected-1))
-        continue (AppState (MakePost board $ newPostUI (Just id) reply) conn)
+        continue (AppState (MakePost board $ newPostUI (Just id) reply) conn cfg)
       _                         -> continue st
   where len = length (threadReplies thread) + 1
 
-appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) ev =
+appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn cfg) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey (KChar 'c') [MCtrl] -> do
         xs <- liftIO $ getThreads conn board
-        continue (AppState (ViewBoard board xs 0) conn)
+        continue (AppState (ViewBoard board xs 0) conn cfg)
       EvKey (KChar 's') [MCtrl] ->
         if null (getEditContents ed4) || all null (getEditContents ed4)
           then continue st
@@ -342,15 +352,16 @@ appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) e
                in do liftIO $ makePost conn subject name (T.stripEnd content) 
                               board reply
                      xs' <- liftIO $ getThreads conn board 
-                     continue (AppState (ViewBoard board xs' 0) conn)
+                     continue (AppState (ViewBoard board xs' 0) conn cfg)
       EvKey (KChar '\t') [] ->
         continue (AppState (MakePost board
                               (PostUI ((focus+1) `mod` 4)
                                       ed1 ed2 ed3 ed4))
-                           conn)
+                           conn
+                           cfg)
       _                         -> do
         ed <- handleEvent ev (currentEditor ui)
-        continue (AppState (MakePost board (updateEditor ui ed)) conn)
+        continue (AppState (MakePost board (updateEditor ui ed)) conn cfg)
   where readInt x       = readMaybe x :: Maybe Int
         listToMaybe' [] = Nothing
         listToMaybe' xs = Just xs
@@ -358,33 +369,51 @@ appEvent st@(AppState (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)) conn) e
 -- This dictates where the cursor goes. Note that we don't give a shit
 -- unless we're making a post.
 appCursor :: AppState -> [CursorLocation] -> Maybe CursorLocation
-appCursor (AppState (MakePost _ ui) _) = showCursorNamed (editorName $ currentEditor ui)
-appCursor st                           = showFirstCursor st
+appCursor (AppState (MakePost _ ui) _ _) =
+    showCursorNamed (editorName $ currentEditor ui)
+appCursor st                             = showFirstCursor st
 
--- The attribute map.
-theMap :: AttrMap
-theMap = attrMap defAttr [ (dialogAttr, white `on` blue)
-                         , (buttonAttr, black `on` white)
-                         , (buttonSelectedAttr, bg yellow)
-                         , (editAttr, black `on` white)
-                         ]
+-- Generate the map from a configuration.
+makeMap :: Config -> AttrMap
+makeMap cfg = attrMap defAttr 
+                  [ (dialogAttr, chanDialogAttr cfg)
+                  , (buttonAttr, chanButtonAttr cfg)
+                  , (buttonSelectedAttr, chanButtonSelectedAttr cfg)
+                  , (editAttr, chanEditAttr cfg)
+                  ]
 
 -- The application itself, in all it's glory.
-theApp :: App AppState Event
-theApp =
+makeApp :: Config -> App AppState Event
+makeApp cfg =
     App { appDraw         = drawUI
         , appChooseCursor = appCursor
         , appHandleEvent  = appEvent
         , appStartEvent   = return
-        , appAttrMap      = const theMap
+        , appAttrMap      = const (makeMap cfg)
         , appLiftVtyEvent = id
         }
 
+data Config = Config
+            { chanName :: String
+            , chanHomepageMsg :: String
+            , chanDialogAttr :: Attr
+            , chanButtonAttr :: Attr
+            , chanButtonSelectedAttr :: Attr
+            , chanEditAttr :: Attr
+            } deriving (Eq, Show, Read)
+
+readCfg :: String -> Either String Config
+readCfg xs =
+    readEither ("Config {" ++ xs ++ "}") :: Either String Config
+
 main :: IO ()
 main = do
-    name <- init <$> readFile "name.txt"
-    conn <- open (name ++ ".db")
-    d    <- homepageDialog conn
-    defaultMain theApp (AppState (Homepage d) conn)
-    return ()
+    cfg <- readCfg <$> readFile "chan.cfg"
+    case cfg of
+      Left err  -> putStrLn $ "Error parsing config file " ++ err
+      Right cfg -> do
+          conn <- open (chanName cfg ++ ".db")
+          d    <- homepageDialog conn cfg
+          defaultMain (makeApp cfg) (AppState (Homepage d) conn cfg)
+          return ()
 
