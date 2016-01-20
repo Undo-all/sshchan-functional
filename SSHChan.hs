@@ -8,6 +8,7 @@ import Data.Time
 import Data.Maybe
 import Data.String
 import Data.Monoid
+import Brick.Types
 import Data.Text (Text)
 import Brick.Widgets.Edit
 import Graphics.Vty.Image
@@ -132,9 +133,10 @@ renderThread selected (Thread op xs)
     | selected == 0    = visible (renderPost True op) <=>
                          padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
     | otherwise        = renderPost False op <=>
-                         padLeft (Pad 2) (vBox . map render . indexes $ xs)
+                         padLeft (Pad 2) 
+                             (vBox . map renderSelected . indexes $ xs)
   where indexes xs = zip xs [0..length xs - 1]
-        render (post, index)
+        renderSelected (post, index)
             | index + 1 == selected = visible (renderPost True post)
             | otherwise             = renderPost False post
 
