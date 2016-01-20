@@ -56,16 +56,10 @@ showNull (Just x) = T.pack (show x)
 -- Make a post (ofc)
 makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn subject name content board reply = do
-    execute_ conn (Query post)
+    execute conn (Query post) (subject, name, content, board, reply)
     when (isJust reply) $
       execute_ conn (Query bump)
-  where post = T.concat [ "INSERT INTO posts VALUES(NULL,date('now'),datetime('now'),"
-                        , showNull subject, ","
-                        , showNull name, ","
-                        , T.pack (show content), ","
-                        , T.pack (show board), ","
-                        , showNull reply, ");"
-                        ]
+  where post = "INSERT INTO posts VALUES(NULL,date('now'),datetime('now'),?,?,?,?,?)"
         bump = T.concat [ "UPDATE posts SET post_last_bumped = datetime('now')\
                           \WHERE post_id = "
                         , T.pack (show $ fromMaybe undefined reply)
@@ -121,10 +115,10 @@ renderPost selected (Post subject name date id content) =
         idInfo        = str ("No. " ++ show id)
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
         info          = hBox $ map (padRight (Pad 1)) allInfo
-        body          = vBox . map txt . T.splitOn "\\n" $ content
+        body          = txt content
         borderStyle   = if selected then unicodeBold else unicode
-    in withBorderStyle borderStyle . border . padRight Max $
-           padBottom (Pad 1) info <=> body
+    in withBorderStyle borderStyle . border $
+           padBottom (Pad 1) info <=> padRight (Pad 1) body
 
 -- Render several posts.
 renderPosts :: [Post] -> Widget
