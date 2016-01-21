@@ -9,6 +9,7 @@ import Data.String
 import Data.Monoid
 import Brick.Types
 import Data.Text (Text)
+import System.Unix.Crypt
 import Brick.Widgets.Edit
 import Graphics.Vty.Image
 import Control.Monad.Trans
@@ -54,10 +55,22 @@ showNull :: Show a => Maybe a -> Text
 showNull Nothing  = "NULL"
 showNull (Just x) = T.pack (show x)
 
+-- generate a tripcode and append it to the name
+genTrip :: Maybe Text -> IO (Maybe Text)
+genTrip Nothing = return Nothing
+genTrip (Just xs)
+    | isJust (T.find (=='#') xs) = do
+        let (name, pass) = T.breakOn "#" xs
+        trip <- last10 <$> crypt (T.unpack pass) "es"
+        return . Just $ T.concat [name, " !", T.pack trip]
+    | otherwise                  = return . Just $ xs
+  where last10 xs = drop (length xs - 10) xs
+
 -- Make a post (ofc)
 makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn subject name content board reply = do
-    execute conn (Query post) (subject, name, content, board, reply)
+    trip <- genTrip name
+    execute conn (Query post) (subject, trip, content, board, reply)
     when (isJust reply) $
       execute_ conn (Query bump)
   where post = "INSERT INTO posts VALUES(NULL,date('now'),datetime('now'),?,?,?,?,?)"
@@ -307,10 +320,10 @@ appEvent st@(AppState conn cfg (ViewBoard board xs selected)) ev =
         continue (AppState conn cfg (ViewBoard board xs 0))
       EvKey KEnd []             ->
         continue (AppState conn cfg (ViewBoard board xs len))
-      EvKey KUp []              -> 
+      EvKey KDown []            -> 
         continue $ AppState conn cfg
                             (ViewBoard board xs (selectNext selected len))
-      EvKey KDown []            -> 
+      EvKey KUp []              -> 
         continue $ AppState conn cfg 
                             (ViewBoard board xs (selectPrev selected len))
       EvKey KEnter []           -> do
