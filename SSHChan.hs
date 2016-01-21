@@ -89,7 +89,9 @@ getThread conn limited board id = do
     replies <- getReplies conn limited id board 
     if limited
       then do [Only n] <- query_ conn (Query queryLen)
-              return (Thread op replies (Just (n-5)))
+              if n > 5
+                then return (Thread op replies (Just (n-5)))
+                else return (Thread op replies Nothing)
       else return (Thread op replies Nothing)
   where queryOp = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
                              \, post_content FROM posts WHERE post_id = "
