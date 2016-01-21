@@ -47,6 +47,7 @@ instance FromRow Post where
 data Thread = Thread 
             { threadOP :: Post 
             , threadReplies :: [Post]
+            , threadOmitted :: Maybe Int
             } deriving (Eq, Show)
 
 -- Converts a Maybe value into a SQL value.
@@ -67,38 +68,49 @@ makePost conn subject name content board reply = do
                         ]
 
 -- Fetch the replies to a post (slow?)
-getReplies :: Connection -> Int -> Int -> IO [Post]
-getReplies conn id board =
-    query_ conn (Query queryReplies)
-  where queryReplies = T.concat [ "SELECT post_id, post_date, post_by, \
-                                  \post_subject, post_content FROM posts WHERE \
-                                  \post_reply = "
-                                , T.pack (show id)
-                                , " AND post_board = "
-                                , T.pack (show board)
-                                , " ORDER BY post_id ASC"
-                                ]
+getReplies :: Connection -> Bool -> Int -> Int -> IO [Post]
+getReplies conn limited id board = do
+    xs <- query_ conn (Query queryReplies)
+    return $ if limited then reverse xs else xs
+  where base = T.concat [ "SELECT post_id, post_date, post_by, \
+                          \post_subject, post_content FROM posts WHERE \
+                          \post_reply = "
+                         , T.pack (show id)
+                         , " AND post_board = "
+                         , T.pack (show board)
+                         , " ORDER BY post_id"
+                        ]
+        queryReplies
+            | limited = T.concat [ base, " DESC LIMIT 5" ]
+            | otherwise = T.concat [ base, " ASC" ]
 
-getThread :: Connection -> Int -> Int -> IO Thread
-getThread conn board id = do
+getThread :: Connection -> Bool -> Int -> Int -> IO Thread
+getThread conn limited board id = do
     [op]    <- query_ conn (Query queryOp)
-    replies <- getReplies conn id board
-    return (Thread op replies)
+    replies <- getReplies conn limited id board 
+    if limited
+      then do [Only n] <- query_ conn (Query queryLen)
+              return (Thread op replies (Just (n-5)))
+      else return (Thread op replies Nothing)
   where queryOp = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
                              \, post_content FROM posts WHERE post_id = "
                            , T.pack (show id)
                            , " AND post_board = "
                            , T.pack (show board)
                            ]
+        queryLen = T.concat [ "SELECT count(*) FROM posts WHERE post_reply = "
+                            , T.pack (show id)
+                            , " AND post_board = "
+                            , T.pack (show board)
+                            ]
 
 -- Get the threads on a board.
 getThreads :: Connection -> Int -> IO [Thread]
 getThreads conn board = do
     ops     <- query_ conn (Query queryOps)
-    replies <- mapM (\(Post _ _ _ id _) -> getReplies conn id board) ops
-    return (zipWith Thread ops replies)
-  where queryOps = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
-                              \, post_content FROM posts WHERE post_reply IS\
+    threads <- mapM (getThread conn True board . (\(Only id) -> id)) ops
+    return threads
+  where queryOps = T.concat [ "SELECT post_id FROM posts WHERE post_reply IS\
                               \ NULL AND post_board = "
                             , T.pack (show board)
                             , " ORDER BY post_last_bumped DESC"
@@ -127,15 +139,20 @@ renderPosts = vBox . map (renderPost False)
 
 -- Render a thread 
 renderThread :: Int -> Thread -> Widget
-renderThread selected (Thread op xs)
-    | selected == (-1) = renderPost False op <=>
+renderThread selected (Thread op xs omitted)
+    | selected == (-1) = renderPost False op <=> omitMsg <=>
                          padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
-    | selected == 0    = visible (renderPost True op) <=>
+    | selected == 0    = visible (renderPost True op) <=> omitMsg <=>
                          padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
-    | otherwise        = renderPost False op <=>
+    | otherwise        = renderPost False op <=> omitMsg <=>
                          padLeft (Pad 2) 
                              (vBox . map renderSelected . indexes $ xs)
   where indexes xs = zip xs [0..length xs - 1]
+        omitMsg    =
+            case omitted of
+              Nothing -> emptyWidget
+              Just n  -> padLeft (Pad 2) . str $ 
+                             show n ++ " posts omitted. Hit enter to view."
         renderSelected (post, index)
             | index + 1 == selected = visible (renderPost True post)
             | otherwise             = renderPost False post
@@ -262,7 +279,7 @@ appEvent st@(AppState conn cfg (Homepage d)) ev =
                                       \WHERE board_name = "
                                     , T.pack (show name)
                                     ]
-                  xs <- liftIO $ getThreads conn board
+                  xs <- liftIO $ getThreads conn board 
                   continue (AppState conn cfg (ViewBoard board xs 0))
       _               ->
         handleEvent ev d >>= continue . AppState conn cfg . Homepage
@@ -282,11 +299,11 @@ appEvent st@(AppState conn cfg (ViewBoard board xs selected)) ev =
                             (ViewBoard board xs (selectPrev selected len))
       EvKey KEnter []           -> do
         let id = postID . threadOP $ xs !! selected
-        thread <- liftIO $ getThread conn board id
+        thread <- liftIO $ getThread conn False board id 
         liftIO $ writeFile "thread.txt" (show thread)
         continue (AppState conn cfg (ViewThread board id thread 0))
       EvKey (KChar 'r') [MCtrl] -> do
-        xs' <- liftIO $ getThreads conn board
+        xs' <- liftIO $ getThreads conn board 
         continue (AppState conn cfg (ViewBoard board xs' 0))
       EvKey (KChar 'z') [MCtrl] -> do
         d <- liftIO $ homepageDialog conn cfg
@@ -311,10 +328,10 @@ appEvent st@(AppState conn cfg (ViewThread board id thread selected)) ev =
         continue $ AppState conn cfg
                        (ViewThread board id thread (selectNext selected len))
       EvKey (KChar 'r') [MCtrl] -> do
-        thread' <- liftIO $ getThread conn board id
+        thread' <- liftIO $ getThread conn False board id 
         continue (AppState conn cfg (ViewThread board id thread' selected))
       EvKey (KChar 'z') [MCtrl] -> do
-        xs <- liftIO $ getThreads conn board
+        xs <- liftIO $ getThreads conn board 
         continue (AppState conn cfg (ViewBoard board xs 0))
       EvKey (KChar 'p') [MCtrl] -> 
         continue $ AppState conn cfg 
@@ -331,7 +348,7 @@ appEvent st@(AppState conn cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4)
     case ev of
       EvKey KEsc []             -> halt st
       EvKey (KChar 'c') [MCtrl] -> do
-        xs <- liftIO $ getThreads conn board
+        xs <- liftIO $ getThreads conn board 
         continue (AppState conn cfg (ViewBoard board xs 0))
       EvKey (KChar 's') [MCtrl] ->
         if null (getEditContents ed4) || all null (getEditContents ed4)
