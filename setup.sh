@@ -11,8 +11,8 @@ read
 printf "Got them? Good!\n"
 printf "First we'll compile sshchan.\n"
 cabal install mtl text sqlite-simple brick 
-ghc -O3 -threaded SSHChan.hs Config.hs -o sshchan
-ghc -O3 SSHChan.hs Config.hs -o admin
+ghc -O3 -threaded SSHChan.hs -o sshchan
+ghc -O3 Admin.hs -o admin
 printf "Done! Enter your chan's name: "
 read name
 printf "Enter the name of the user your sshchan-functional instance should run on: "
@@ -25,8 +25,8 @@ printf "Now we'll set the password that will be used to connect to your sshchan 
 sudo passwd "$user"
 sudo mv sshchan "$dir"
 sudo mv admin "$dir"
-cat setup.sql | sudo sqlite3 "$dir/$name.db"
-sudo chown "$user":anons "$dir/$name.db"
+cat setup.sql | sudo sqlite3 "$dir/chan.db"
+sudo chown "$user":anons "$dir/chan.db"
 cat defaultConfig.cfg | sudo tee -a "$dir/chan.cfg"
 sudo su -c "sed -i '1s/.*/chanName=\"$name\",/' ~/chan.cfg" "$user"
 printf "\nMatch User $user\n    ForceCommand ./sshchan\n    PasswordAuthentication yes\n    AllowTcpForwarding no\n" | sudo tee -a /etc/ssh/sshd_config

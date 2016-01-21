@@ -3,7 +3,6 @@
 module Main where
 
 import Brick
-import Config
 import Data.Time
 import Data.Maybe
 import Data.String
@@ -230,6 +229,21 @@ renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
         fields  = vLimit 35 . hLimit 150 . padBottom (Pad 1) . hBox $ editors
         content = vLimit 35 . hLimit 150 $ renderEditor ed4
 
+-- The configuration of the chan.
+data Config = Config
+            { chanName :: String
+            , chanHomepageMsg :: String
+            , chanDialogAttr :: Attr
+            , chanButtonAttr :: Attr
+            , chanButtonSelectedAttr :: Attr
+            , chanEditAttr :: Attr
+            } deriving (Eq, Show, Read)
+
+-- Reads a configuration from a string.
+readConfig :: String -> Either String Config
+readConfig xs =
+    readEither ("Config {" ++ xs ++ "}") :: Either String Config
+
 -- Our application state. The only reason this isn't just Page is because
 -- you have to keep track of the sqlite database connection and the
 -- configuration.
@@ -403,11 +417,11 @@ makeApp cfg =
 
 main :: IO ()
 main = do
-    cfg <- readConfig <$> readFile "chan.cfg"
+    conn <- open "chan.db"
+    cfg  <- readConfig <$> readFile "chan.cfg"
     case cfg of
       Left err  -> putStrLn $ "Error parsing config file " ++ err
       Right cfg -> do
-          conn <- open (chanName cfg ++ ".db")
           d    <- homepageDialog conn cfg
           defaultMain (makeApp cfg) (AppState conn cfg (Homepage d))
           return ()
