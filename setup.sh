@@ -10,7 +10,7 @@ printf "all installed, so if you don't, Ctrl+C now and get them! [Enter to conti
 read 
 printf "Got them? Good!\n"
 printf "First we'll compile sshchan.\n"
-cabal install mtl text sqlite-simple brick unixutils
+cabal install mtl text sqlite-simple brick unixutils iproute
 ghc -O3 -threaded SSHChan.hs -o sshchan
 ghc -O3 Admin.hs -o admin
 printf "Done! Enter your chan's name: "
