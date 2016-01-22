@@ -2,6 +2,8 @@
 
 module Main where
 
+import Debug.Trace
+
 import Brick
 import Data.IP
 import Data.Char
@@ -444,15 +446,16 @@ makeApp cfg =
 
 -- Get the IP address of who's connected.
 getIP :: IO String
-getIP = init <$> readCreateProcess (shell command) ""
+getIP = (\x -> trace (show x) x) . init <$> readCreateProcess (shell command) ""
   where command =
-            "pinky | grep anon | sort -rk 5n | awk '{ print $8 }' | head -1"
+            "pinky | grep anon | sort -rk 5n | awk '{ print $7 }' | head -1"
 
 main :: IO ()
 main = do
     ip   <- (\x -> read x :: IP) <$> getIP 
     conn <- open "chan.db"
-    cfg  <- readConfig <$> readFile "chan.cfg"
+    -- It's important that we get the IP address immediately.
+    cfg  <- ip `seq` readConfig <$> readFile "chan.cfg"
     case cfg of
       Left err  -> putStrLn $ "Error parsing config file " ++ err
       Right cfg -> do
