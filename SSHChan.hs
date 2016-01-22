@@ -450,12 +450,13 @@ getIP = (\x -> trace (show x) x) . init <$> readCreateProcess (shell command) ""
   where command =
             "pinky | grep anon | sort -rk 5n | awk '{ print $7 }' | head -1"
 
+-- The first line garuantees that before anything else, we get the IP
+-- address of the SSH session.
 main :: IO ()
-main = do
-    ip   <- (\x -> read x :: IP) <$> getIP 
+main = flip ($!) ((\x -> read x :: IP) <$> getIP) $ \ip' -> do
+    ip   <- ip'
     conn <- open "chan.db"
-    -- It's important that we get the IP address immediately.
-    cfg  <- ip `seq` readConfig <$> readFile "chan.cfg"
+    cfg  <- readConfig <$> readFile "chan.cfg"
     case cfg of
       Left err  -> putStrLn $ "Error parsing config file " ++ err
       Right cfg -> do
