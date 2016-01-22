@@ -8,6 +8,7 @@ CREATE TABLE boards (
 
 CREATE TABLE posts (
     post_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    post_ip VARCHAR(39),
     post_date DATE NOT NULL,
     post_last_bumped DATETIME NOT NULL,
     post_subject VARCHAR(255),

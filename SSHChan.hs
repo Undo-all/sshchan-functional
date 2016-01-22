@@ -77,13 +77,13 @@ genTripcode (Just xs)
             | otherwise              = c
 
 -- Make a post (ofc)
-makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
-makePost conn subject name content board reply = do
+makePost :: Connection -> IP -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
+makePost conn ip subject name content board reply = do
     trip <- genTripcode name
-    execute conn (Query post) (subject, trip, content, board, reply)
+    execute conn (Query post) (show ip, subject, trip, content, board, reply)
     when (isJust reply) $
       execute_ conn (Query bump)
-  where post = "INSERT INTO posts VALUES(NULL,date('now'),datetime('now'),?,?,?,?,?)"
+  where post = "INSERT INTO posts VALUES(NULL,?,date('now'),datetime('now'),?,?,?,?,?)"
         bump = T.concat [ "UPDATE posts SET post_last_bumped = datetime('now')\
                           \WHERE post_id = "
                         , T.pack (show $ fromMaybe undefined reply)
@@ -399,7 +399,7 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
                  name    = T.pack <$> listToMaybe' (head $ getEditContents ed2)
                  reply   = listToMaybe (getEditContents ed3) >>= readInt
                  content = T.pack . unlines $ getEditContents ed4
-               in do liftIO $ makePost conn subject name (T.stripEnd content) 
+               in do liftIO $ makePost conn ip subject name (T.stripEnd content) 
                               board reply
                      xs' <- liftIO $ getThreads conn board 
                      continue (AppState conn ip cfg (ViewBoard board xs' 0))
