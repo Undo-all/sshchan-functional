@@ -119,10 +119,24 @@ repl conn = do
     xs <- getLine
     if all isSpace xs
       then repl conn
-      else let xs' = makeSpaces $ words xs
+      else let xs' = args [] [] False xs
            in do eval conn (head xs') (tail xs')
                  repl conn
-  where makeSpaces = map (map (\c -> if c == '_' then ' ' else c)) 
+  where args tmp res _ []
+            | null tmp  = reverse res
+            | otherwise = reverse (reverse tmp:res)
+        args tmp res True ('\\':'"':xs) = args ('"':tmp) res True xs
+        args tmp res True ('"':xs)      = args [] (reverse tmp:res) False xs
+        args tmp res True (c:xs)        = args (c:tmp) res True xs
+        args tmp res False ('"':xs)
+            | null tmp  = args [] res True xs
+            | otherwise = args [] (reverse tmp:res) True xs
+        args tmp res False (c:xs) 
+            | isSpace c =
+              if null tmp
+                then args [] res False xs 
+                else args [] (reverse tmp:res) False xs
+            | otherwise = args (c:tmp) res False xs
 
 main :: IO ()
 main = do
