@@ -3,6 +3,7 @@
 module Main where
 
 import Brick
+import Tripcode
 import Data.Time
 import Data.Maybe
 import Data.String
@@ -16,6 +17,7 @@ import Control.Monad.Trans
 import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Brick.Widgets.Dialog
+import Data.Digest.Pure.SHA
 import Control.Monad (when)
 import Database.SQLite.Simple
 import qualified Data.Text as T
@@ -55,21 +57,10 @@ showNull :: Show a => Maybe a -> Text
 showNull Nothing  = "NULL"
 showNull (Just x) = T.pack (show x)
 
--- generate a tripcode and append it to the name
-genTrip :: Maybe Text -> IO (Maybe Text)
-genTrip Nothing = return Nothing
-genTrip (Just xs)
-    | isJust (T.find (=='#') xs) = do
-        let (name, pass) = T.breakOn "#" xs
-        trip <- last10 <$> crypt (T.unpack pass) "es"
-        return . Just $ T.concat [name, " !", T.pack trip]
-    | otherwise                  = return . Just $ xs
-  where last10 xs = drop (length xs - 10) xs
-
 -- Make a post (ofc)
 makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn subject name content board reply = do
-    trip <- genTrip name
+    trip <- genTripcode name
     execute conn (Query post) (subject, trip, content, board, reply)
     when (isJust reply) $
       execute_ conn (Query bump)
@@ -156,7 +147,7 @@ renderThread :: Int -> Thread -> Widget
 renderThread selected (Thread op xs omitted)
     | selected == (-1) = renderPost False op <=> omitMsg <=>
                          padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
-    | selected == 0    = visible (renderPost True op) <=> omitMsg <=>
+    | selected == 0    = visible $ renderPost True op <=> omitMsg <=>
                          padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
     | otherwise        = renderPost False op <=> omitMsg <=>
                          padLeft (Pad 2) 
@@ -174,7 +165,7 @@ renderThread selected (Thread op xs omitted)
 -- Render several threads (these comments are helpful, aren't they?)
 renderThreads :: Int -> [Thread] -> Widget
 renderThreads selected =
-    viewport "threads" Vertical . vBox . map render . indexes
+    vBox . map render . indexes
   where indexes xs = zip xs [0..length xs - 1]
         render (thread, index)
             | index == selected = renderThread 0 thread
@@ -285,11 +276,13 @@ drawUI :: AppState -> [Widget]
 drawUI (AppState _ Config{ chanHomepageMsg = msg } (Homepage d)) =
     [renderDialog d . hCenter . padAll 1 $ str msg]
 drawUI (AppState _ _ (ViewBoard _ xs selected)) =
-    [hCenter instructions <=> renderThreads selected xs]
+    [ hCenter instructions <=> 
+      viewport "threads" Vertical (renderThreads selected xs)
+    ]
 drawUI (AppState _ _ (ViewThread _ id thread selected)) =
     [ hCenter instructions <=>
-      renderThread selected thread <=>
-      padTop Max (hCenter . str $ "Viewing thread No. " ++ show id)
+      viewport "thread" Vertical (renderThread selected thread) <=>
+      (hCenter . str $ "Viewing thread No. " ++ show id)
     ]
 drawUI (AppState _ _ (MakePost _ ui)) = [center $ renderPostUI ui]
 
