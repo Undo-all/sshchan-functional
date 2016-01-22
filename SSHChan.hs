@@ -3,7 +3,7 @@
 module Main where
 
 import Brick
-import Tripcode
+import Data.Char
 import Data.Time
 import Data.Maybe
 import Data.String
@@ -56,6 +56,26 @@ data Thread = Thread
 showNull :: Show a => Maybe a -> Text
 showNull Nothing  = "NULL"
 showNull (Just x) = T.pack (show x)
+
+-- Code adapted from http://cairnarvon.rotahall.org/2009/01/09/ofioc/
+
+salt :: String -> String
+salt t = map f . take 2 . tail $ t ++ "H.."
+  where f c | c `notElem` ['.'..'z'] = '.'
+            | c `elem` [':'..'@']    = chr $ ord c + 7
+            | c `elem` ['['..'`']    = chr $ ord c + 6
+            | otherwise              = c
+
+genTripcode :: Maybe Text -> IO (Maybe Text)
+genTripcode Nothing = return Nothing
+genTripcode (Just xs)
+    | isJust (T.find (=='#') xs) =
+      let (name, pass) = (\(x,y) -> (x, T.tail y)) . T.breakOn "#" $ xs
+      in do trip <- tripcode pass
+            return . Just . (T.append (T.concat [name, " !"])) $ trip
+    | otherwise              = return (Just xs)
+  where tripcode pass = T.pack . (\xs -> drop (length xs - 10) xs) <$>
+                            crypt (T.unpack pass) (salt . T.unpack $ pass)
 
 -- Make a post (ofc)
 makePost :: Connection -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
