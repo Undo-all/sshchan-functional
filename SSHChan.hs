@@ -8,6 +8,7 @@ import Brick
 import Data.IP
 import Data.Char
 import Data.Time
+import Data.List
 import Data.Maybe
 import Data.String
 import Data.Monoid
@@ -90,6 +91,14 @@ makePost conn ip subject name content board reply = do
                           \WHERE post_id = "
                         , T.pack (show $ fromMaybe undefined reply)
                         ]
+
+getBoardName :: Connection -> Int -> IO String
+getBoardName conn id = do
+    [Only name] <- query_ conn (Query queryName)
+    return name
+  where queryName = T.concat [ "SELECT board_name FROM boards WHERE board_id = "
+                             , T.pack (show id)
+                             ]
 
 -- Fetch the replies to a post (slow?)
 getReplies :: Connection -> Bool -> Int -> Int -> IO [Post]
@@ -197,6 +206,7 @@ data Page = Homepage (Dialog String)
           | ViewBoard Int [Thread] Int
           | ViewThread Int Int Thread Int
           | MakePost Int PostUI
+          | Banned Int (Maybe String) String (Maybe UTCTime)
 
 -- In any selection in a series, the index needs to loop around when it is
 -- greater than the length of the series. These are helper functions to do
@@ -306,6 +316,20 @@ drawUI (AppState _ _ _ (ViewThread _ id thread selected)) =
       (hCenter . str $ "Viewing thread No. " ++ show id)
     ]
 drawUI (AppState _ _ _ (MakePost _ ui)) = [center $ renderPostUI ui]
+drawUI (AppState _ _ _ (Banned _ from reason time)) =
+    [ borderWithLabel (str "You have been banned!") $
+      (hCenter . str $ "You have been banned from " ++ showFrom from) <=>
+      (hCenter . str $ "This ban will expire: " ++ maybe "never" showTime time) <=>
+      (hCenter . str $ "Reason: " ++ reason) <=>
+      (hCenter . str $ "Press enter to continue.")
+    ]
+  where showTime = (++" UTC") . show
+        showFrom = fromMaybe "all boards"
+
+viewBoard :: Connection -> Int -> IO Page
+viewBoard conn board = do
+    xs <- getThreads conn board
+    return $ ViewBoard board xs 0
 
 -- This handles events, and boy oh boy, does it just do it in the least
 -- elegant looking way possible.
@@ -387,24 +411,23 @@ appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
       _                         -> continue st
   where len = length (threadReplies thread) + 1
 
+-- Warning: absolutely vomit-inducing code (I promise I'll do code cleanup
+-- soon)
 appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4))) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey (KChar 'c') [MCtrl] -> do
         xs <- liftIO $ getThreads conn board 
         continue (AppState conn ip cfg (ViewBoard board xs 0))
-      EvKey (KChar 's') [MCtrl] ->
-        if null (getEditContents ed4) || all null (getEditContents ed4)
-          then continue st
-          else let
-                 subject = T.pack <$> listToMaybe' (head $ getEditContents ed1)
-                 name    = T.pack <$> listToMaybe' (head $ getEditContents ed2)
-                 reply   = listToMaybe (getEditContents ed3) >>= readInt
-                 content = T.pack . unlines $ getEditContents ed4
-               in do liftIO $ makePost conn ip subject name (T.stripEnd content) 
-                              board reply
-                     xs' <- liftIO $ getThreads conn board 
-                     continue (AppState conn ip cfg (ViewBoard board xs' 0))
+      EvKey (KChar 's') [MCtrl] -> do
+        banned <- liftIO $ query_ conn queryBanned
+        case find (\(n,_,_,_) -> n == show ip) banned of
+          Just (_, from, reason, time) -> do
+            case from of
+              Nothing   -> ban Nothing reason time 
+              Just from -> if from == board then ban (Just board) reason time
+                                            else post
+          Nothing -> post
       EvKey (KChar '\t') [] ->
         continue $ AppState
                      conn ip cfg
@@ -416,6 +439,40 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
   where readInt x       = readMaybe x :: Maybe Int
         listToMaybe' [] = Nothing
         listToMaybe' xs = Just xs
+        queryBanned     = Query "SELECT * FROM bans"
+        queryRemoveBan  = Query $ T.concat [ "DELETE * FROM bans WHERE ban_ip = "
+                                           , T.pack (show ip)
+                                           ]
+        ban from reason time = do
+            currTime <- liftIO $ getCurrentTime
+            if isJust time && currTime > (fromMaybe undefined time)
+              then liftIO (execute_ conn queryRemoveBan) >> post
+              else case from of
+                     Nothing   ->
+                       continue (AppState conn ip cfg (Banned board Nothing reason time))
+                     Just from -> do
+                       name <- liftIO $ getBoardName conn from
+                       continue (AppState conn ip cfg (Banned board (Just name) reason time))
+        post | null (getEditContents ed4) || all null (getEditContents ed4) =
+              continue st
+             | otherwise =
+               let
+                 subject = T.pack <$> listToMaybe' (head $ getEditContents ed1)
+                 name    = T.pack <$> listToMaybe' (head $ getEditContents ed2)
+                 reply   = listToMaybe (getEditContents ed3) >>= readInt
+                 content = T.pack . unlines $ getEditContents ed4
+               in do liftIO $ makePost conn ip subject name (T.stripEnd content)
+                              board reply
+                     xs' <- liftIO $ getThreads conn board 
+                     continue (AppState conn ip cfg (ViewBoard board xs' 0))
+
+appEvent st@(AppState conn ip cfg (Banned board _ _ _)) ev =
+    case ev of
+      EvKey KEsc []   -> halt st
+      EvKey KEnter [] -> do
+        page <- liftIO $ viewBoard conn board
+        continue (AppState conn ip cfg page)
+            
 
 -- This dictates where the cursor goes. Note that we don't give a shit
 -- unless we're making a post.
