@@ -317,21 +317,26 @@ instructions = hBox . map (padLeftRight 10) $
 drawUI :: AppState -> [Widget]
 drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage d)) =
     [renderDialog d . hCenter . padAll 1 $ str msg]
+
 drawUI (AppState _ _ _ (ViewBoard _ xs selected)) =
     [ hCenter instructions <=> 
-      viewport "threads" Vertical (renderThreads selected xs)
+      viewport "threads" Vertical (renderThreads selected xs) 
     ]
+
 drawUI (AppState _ _ _ (ViewThread _ id thread selected)) =
     [ hCenter instructions <=>
       viewport "thread" Vertical (renderThread selected thread) <=>
       (hCenter . str $ "Viewing thread No. " ++ show id)
     ]
+
 drawUI (AppState _ _ _ (MakePost _ ui)) = [center $ renderPostUI ui]
-drawUI (AppState _ _ _ (Banned _ from reason time)) =
-    [ borderWithLabel (str "You have been banned!") $
+
+drawUI (AppState _ ip _ (Banned _ from reason time)) =
+    [ center . borderWithLabel (str "You have been banned!") . padAll 2 $
       (hCenter . str $ "You have been banned from " ++ showFrom from) <=>
       (hCenter . str $ "This ban will expire: " ++ maybe "never" showTime time) <=>
       (hCenter . str $ "Reason: " ++ reason) <=>
+      (hCenter . str $ "Your IP: " ++ show ip) <=>
       (hCenter . str $ "Press enter to continue.")
     ]
   where showTime = (++" UTC") . show
@@ -362,8 +367,8 @@ appEvent st@(AppState conn ip cfg (Homepage d)) ev =
               board <- liftIO $ getBoardID conn name
               page  <- liftIO $ viewBoard conn board
               continue (AppState conn ip cfg page)
-      _               ->
-        handleEvent ev d >>= continue . AppState conn ip cfg  . Homepage
+      _               -> do d' <- handleEvent ev d
+                            continue (AppState conn ip cfg (Homepage d'))
 
 appEvent st@(AppState conn ip cfg (ViewBoard board xs selected)) ev =
     case ev of
@@ -408,7 +413,6 @@ appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
         continue $ AppState conn ip cfg
                        (ViewThread board id thread (selectNext selected len))
       EvKey (KChar 'r') [MCtrl] -> do
-        thread' <- liftIO $ getThread conn False board id
         page <- liftIO $ viewThread conn board id
         continue (AppState conn ip cfg page)
       EvKey (KChar 'z') [MCtrl] -> do
@@ -421,7 +425,8 @@ appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
         let reply = if selected == 0
                       then Nothing
                       else Just $ postID (threadReplies thread !! (selected-1))
-        continue (AppState conn ip cfg (MakePost board $ newPostUI (Just id) reply))
+        continue $ AppState conn ip cfg
+                       (MakePost board $ newPostUI (Just id) reply)
       _                         -> continue st
   where len = length (threadReplies thread) + 1
 
