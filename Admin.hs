@@ -3,8 +3,10 @@
 module Main where
 
 import Data.Char
+import Data.Time
 import Data.List
 import System.IO
+import Data.Maybe
 import Data.Text (Text)
 import Text.Read (readMaybe)
 import Database.SQLite.Simple
@@ -31,6 +33,11 @@ deletePost conn id = execute_ conn (Query delete)
   where delete = T.concat [ "DELETE FROM posts WHERE post_id = "
                           , T.pack (show id)
                           ]
+
+banIP :: Connection -> String -> Maybe String -> String -> (Maybe UTCTime) -> IO ()
+banIP conn ip board reason time =
+    execute conn (Query ban) (ip, board, reason, time)
+  where ban = "INSERT INTO boards VALUES(?,?,?,?)"
 
 data Command = Command
              { commandDesc    :: String
@@ -73,6 +80,15 @@ commandDeleteBoard =
       (1, Just 1)
       (\conn [name] -> deleteBoard conn (T.pack name))
 
+commandListBoards :: Command
+commandListBoards =
+    Command
+      "list the boards on the sshchan-functional server"
+      (0, Nothing)
+      list
+  where list conn _ = do [xs] <- query_ conn "SELECT board_name FROM boards"
+                         putStrLn . intercalate ", " . map T.unpack $ xs
+
 commandDeletePost :: Command
 commandDeletePost =
     Command
@@ -83,22 +99,72 @@ commandDeletePost =
                              Just n  -> deletePost conn n
                              Nothing -> putStrLn $ id ++ " is not an integer."
 
-commandListBoards :: Command
-commandListBoards =
+commandDeletePosts :: Command
+commandDeletePosts = 
     Command
-      "list the boards on the sshchan-functional server"
-      (0, Nothing)
-      list
-  where list conn _ = do [xs] <- query_ conn "SELECT board_name FROM boards"
-                         putStrLn . intercalate ", " . map T.unpack $ xs
+      "delete all posts passed as arguments"
+      (1, Nothing)
+      delete
+  where delete conn xs = let nums = catMaybes . map readInt $ xs
+                         in mapM_ (deletePost conn) nums
+        readInt x      = read x :: Maybe Int
+
+commandDeleteByIP :: Command
+commandDeleteByIP =
+    Command
+      "delete all posts by an IP across boards"
+      (1, Just 1)
+      delete
+  where delete conn [ip] = execute_ conn (Query $ queryDelete ip)
+        queryDelete ip   =
+            T.concat [ "DELETE FROM posts WHERE post_ip = \""
+                     , T.pack ip, "\""
+                     ]
+
+commandBanIP :: Command
+commandBanIP =
+    Command
+      "ban a user by IP (time format: seconds)"
+      (2, Just 4)
+      ban
+  where ban conn [ip, reason]              = banIP conn ip Nothing reason Nothing
+        ban conn [ip, board, reason]       =
+            banIP conn ip (parseBoard board) reason Nothing
+        ban conn [ip, board, reason, time] = do
+            let add = parseTime time
+            currTime <- getCurrentTime
+            banIP conn ip (parseBoard board) reason (Just $ addUTCTime add currTime)
+
+        parseTime xs     = fromIntegral ((10^12) * readInt xs) 
+        parseBoard "all" = Nothing
+        parseBoard xs    = Just xs
+        readInt x = read x :: Int
+
+commandGetIP :: Command
+commandGetIP =
+    Command
+      "get the IP of the poster of a post"
+      (1, Just 1)
+      getIP
+  where getIP conn [id] = do
+            [Only ip] <- query_ conn (Query $ queryIP id)
+            putStrLn ip
+        queryIP id = T.concat [ "SELECT post_ip FROM posts WHERE post_id = "
+                              , T.pack (show id)
+                              ]
+        
 
 commands :: M.Map String Command
 commands = M.fromList
                [ ("help", commandHelp)
                , ("make-board", commandMakeBoard)
                , ("delete-board", commandDeleteBoard)
-               , ("delete-post", commandDeletePost)
                , ("list-boards", commandListBoards)
+               , ("delete-post", commandDeletePost)
+               , ("delete-posts", commandDeletePosts)
+               , ("delete-by-ip", commandDeleteByIP)
+               , ("ban-ip", commandBanIP)
+               , ("get-ip", commandGetIP)
                ]
 
 eval :: Connection -> String -> [String] -> IO ()
@@ -107,9 +173,10 @@ eval conn x xs =
       Just (Command _ n f) ->
         if correctNumArgs (length xs) n
           then f conn xs
-          else let expected = " (expected " ++ showNumArgs n ++ ", got " ++ 
+          else let expected = " (expected " ++ showNumArgs n ++ ", got " ++
                               show (length xs) ++ ")"
-               in putStr $ "Wrong number of arguments to command " ++ x ++ expected
+               in putStrLn $ 
+                      "Wrong number of arguments to command " ++ x ++ expected
       Nothing              -> putStr $ "Command not found: " ++ x
 
 repl :: Connection -> IO ()
