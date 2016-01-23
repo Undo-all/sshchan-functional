@@ -61,11 +61,10 @@ showNull :: Show a => Maybe a -> Text
 showNull Nothing  = "NULL"
 showNull (Just x) = T.pack (show x)
 
+-- Generate a tripcode.
 -- Code adapted from http://cairnarvon.rotahall.org/2009/01/09/ofioc/
-
-genTripcode :: Maybe Text -> IO (Maybe Text)
-genTripcode Nothing = return Nothing
-genTripcode (Just xs)
+genTripcode :: Text -> IO (Maybe Text)
+genTripcode xs
     | isJust (T.find (=='#') xs) =
       let (name, pass) = (\(x,y) -> (x, T.tail y)) . T.breakOn "#" $ xs
       in do trip <- tripcode pass
@@ -82,7 +81,7 @@ genTripcode (Just xs)
 -- Make a post (ofc)
 makePost :: Connection -> IP -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn ip subject name content board reply = do
-    trip <- genTripcode name
+    trip <- maybe (return Nothing) genTripcode name
     execute conn (Query post) (show ip, subject, trip, content, board, reply)
     when (isJust reply) $
       execute_ conn (Query bump)
@@ -92,6 +91,7 @@ makePost conn ip subject name content board reply = do
                         , T.pack (show $ fromMaybe undefined reply)
                         ]
 
+-- Gets the name of a board from it's ID.
 getBoardName :: Connection -> Int -> IO String
 getBoardName conn id = do
     [Only name] <- query_ conn (Query queryName)
@@ -99,6 +99,15 @@ getBoardName conn id = do
   where queryName = T.concat [ "SELECT board_name FROM boards WHERE board_id = "
                              , T.pack (show id)
                              ]
+
+-- Opposite of getBoardName: gets a board's ID from it's name.
+getBoardID :: Connection -> String -> IO Int
+getBoardID conn name = do
+    [Only id] <- query_ conn (Query queryID)
+    return id
+  where queryID = T.concat [ "SELECT board_id FROM boards WHERE board_name = \""
+                           , T.pack name, "\""
+                           ]
 
 -- Fetch the replies to a post (slow?)
 getReplies :: Connection -> Bool -> Int -> Int -> IO [Post]
@@ -117,6 +126,7 @@ getReplies conn limited id board = do
             | limited = T.concat [ base, " DESC LIMIT 5" ]
             | otherwise = T.concat [ base, " ASC" ]
 
+-- Get a thread from it's ID.
 getThread :: Connection -> Bool -> Int -> Int -> IO Thread
 getThread conn limited board id = do
     [op]    <- query_ conn (Query queryOp)
@@ -294,6 +304,7 @@ homepageDialog conn Config{ chanName = name, chanHomepageMsg = msg } = do
         choices = zip xs xs 
     return $ dialog "boardselect" (Just name) (Just (0, choices)) 50
 
+-- Instructions shown at top of page.
 instructions :: Widget
 instructions = hBox . map (padLeftRight 10) $
                    [ str "Ctrl+P to make a post"
@@ -326,10 +337,17 @@ drawUI (AppState _ _ _ (Banned _ from reason time)) =
   where showTime = (++" UTC") . show
         showFrom = fromMaybe "all boards"
 
+-- Generate a ViewBoard page.
 viewBoard :: Connection -> Int -> IO Page
 viewBoard conn board = do
     xs <- getThreads conn board
     return $ ViewBoard board xs 0
+
+-- Generate a ViewThread page.
+viewThread :: Connection -> Int -> Int -> IO Page
+viewThread conn board id = do
+    thread <- getThread conn False board id
+    return (ViewThread board id thread 0)
 
 -- This handles events, and boy oh boy, does it just do it in the least
 -- elegant looking way possible.
@@ -338,16 +356,12 @@ appEvent st@(AppState conn ip cfg (Homepage d)) ev =
     case ev of
       EvKey KEsc []   -> halt st
       EvKey KEnter [] ->
-        if isNothing (dialogSelection d)
-          then continue st
-          else do let name = fromMaybe undefined (dialogSelection d) 
-                  [Only board] <- liftIO $ query_ conn $ Query $ T.concat
-                                    [ "SELECT board_id FROM boards \
-                                      \WHERE board_name = "
-                                    , T.pack (show name)
-                                    ]
-                  xs <- liftIO $ getThreads conn board 
-                  continue (AppState conn ip cfg (ViewBoard board xs 0))
+        case (dialogSelection d) of
+          Nothing   -> continue st
+          Just name -> do
+              board <- liftIO $ getBoardID conn name
+              page  <- liftIO $ viewBoard conn board
+              continue (AppState conn ip cfg page)
       _               ->
         handleEvent ev d >>= continue . AppState conn ip cfg  . Homepage
 
@@ -360,18 +374,17 @@ appEvent st@(AppState conn ip cfg (ViewBoard board xs selected)) ev =
         continue (AppState conn ip cfg (ViewBoard board xs len))
       EvKey KDown []            -> 
         continue $ AppState conn ip cfg
-                            (ViewBoard board xs (selectNext selected len))
+                       (ViewBoard board xs (selectNext selected len))
       EvKey KUp []              -> 
         continue $ AppState conn ip cfg 
-                            (ViewBoard board xs (selectPrev selected len))
+                       (ViewBoard board xs (selectPrev selected len))
       EvKey KEnter []           -> do
         let id = postID . threadOP $ xs !! selected
-        thread <- liftIO $ getThread conn False board id 
-        liftIO $ writeFile "thread.txt" (show thread)
-        continue (AppState conn ip cfg (ViewThread board id thread 0))
+        page <- liftIO $ viewThread conn board id
+        continue (AppState conn ip cfg page)
       EvKey (KChar 'r') [MCtrl] -> do
-        xs' <- liftIO $ getThreads conn board 
-        continue (AppState conn ip cfg (ViewBoard board xs' 0))
+        page <- liftIO $ viewBoard conn board 
+        continue (AppState conn ip cfg page)
       EvKey (KChar 'z') [MCtrl] -> do
         d <- liftIO $ homepageDialog conn cfg
         continue (AppState conn ip cfg (Homepage d))
@@ -395,11 +408,12 @@ appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
         continue $ AppState conn ip cfg
                        (ViewThread board id thread (selectNext selected len))
       EvKey (KChar 'r') [MCtrl] -> do
-        thread' <- liftIO $ getThread conn False board id 
-        continue (AppState conn ip cfg (ViewThread board id thread' selected))
+        thread' <- liftIO $ getThread conn False board id
+        page <- liftIO $ viewThread conn board id
+        continue (AppState conn ip cfg page)
       EvKey (KChar 'z') [MCtrl] -> do
-        xs <- liftIO $ getThreads conn board 
-        continue (AppState conn ip cfg (ViewBoard board xs 0))
+        page <- liftIO $ viewBoard conn board
+        continue (AppState conn ip cfg page)
       EvKey (KChar 'p') [MCtrl] -> 
         continue $ AppState conn ip cfg 
                        (MakePost board (newPostUI (Just id) Nothing))
@@ -417,18 +431,18 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
     case ev of
       EvKey KEsc []             -> halt st
       EvKey (KChar 'c') [MCtrl] -> do
-        xs <- liftIO $ getThreads conn board 
-        continue (AppState conn ip cfg (ViewBoard board xs 0))
+        page <- liftIO $ viewBoard conn board
+        continue (AppState conn ip cfg page)
       EvKey (KChar 's') [MCtrl] -> do
         banned <- liftIO $ query_ conn queryBanned
-        case find (\(n,_,_,_) -> n == show ip) banned of
+        case find (\(n, _, _, _) -> n == show ip) banned of
           Just (_, from, reason, time) -> do
             case from of
               Nothing   -> ban Nothing reason time 
               Just from -> if from == board then ban (Just board) reason time
                                             else post
           Nothing -> post
-      EvKey (KChar '\t') [] ->
+      EvKey (KChar '\t') []      ->
         continue $ AppState
                      conn ip cfg
                      (MakePost board (PostUI ((focus+1) `mod` 4)
@@ -436,13 +450,9 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
       _                         -> do
         ed <- handleEvent ev (currentEditor ui)
         continue (AppState conn ip cfg (MakePost board (updateEditor ui ed)))
-  where readInt x       = readMaybe x :: Maybe Int
-        listToMaybe' [] = Nothing
-        listToMaybe' xs = Just xs
-        queryBanned     = Query "SELECT * FROM bans"
-        queryRemoveBan  = Query $ T.concat [ "DELETE * FROM bans WHERE ban_ip = "
-                                           , T.pack (show ip)
-                                           ]
+  where readInt x            = readMaybe x :: Maybe Int
+        listToMaybe' []      = Nothing
+        listToMaybe' xs      = Just xs
         ban from reason time = do
             currTime <- liftIO $ getCurrentTime
             if isJust time && currTime > (fromMaybe undefined time)
@@ -453,8 +463,9 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
                      Just from -> do
                        name <- liftIO $ getBoardName conn from
                        continue (AppState conn ip cfg (Banned board (Just name) reason time))
-        post | null (getEditContents ed4) || all null (getEditContents ed4) =
-              continue st
+
+        post | null (getEditContents ed4) || all null (getEditContents ed4) = 
+               continue st
              | otherwise =
                let
                  subject = T.pack <$> listToMaybe' (head $ getEditContents ed1)
@@ -465,6 +476,10 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
                               board reply
                      xs' <- liftIO $ getThreads conn board 
                      continue (AppState conn ip cfg (ViewBoard board xs' 0))
+        queryBanned     = Query "SELECT * FROM bans"
+        queryRemoveBan  = Query $ T.concat [ "DELETE * FROM bans WHERE ban_ip = "
+                                           , T.pack (show ip)
+                                           ]
 
 appEvent st@(AppState conn ip cfg (Banned board _ _ _)) ev =
     case ev of
