@@ -20,3 +20,10 @@ CREATE TABLE posts (
     FOREIGN KEY(post_reply) REFERENCES posts(post_id) ON DELETE CASCADE
 );
 
+CREATE TABLE bans (
+    ban_ip VARCHAR(39) NOT NULL,
+    ban_board INT,
+    ban_reason TEXT NOT NULL,
+    ban_until DATETIME
+);
+
