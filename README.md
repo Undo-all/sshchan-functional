@@ -1,5 +1,5 @@
 # sshchan-functional
-Pseudo-implimentation of sshchan (http://neetco.de/chibi/sshchan) written in Haskell.
+sshchan-functional is a pseudo-implimentation of sshchan (http://neetco.de/chibi/sshchan) written in Haskell.
 
 ## Differences between sshchan-functional and sshchan
 * Entirely different GUI

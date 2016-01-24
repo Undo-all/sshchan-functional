@@ -34,9 +34,9 @@ import Text.Read (readMaybe, readEither)
 -- Posts hold posts!
 data Post = Post
           { postSubject :: Maybe Text
-          , postBy :: Maybe Text 
-          , postDate :: Day 
-          , postID :: Int 
+          , postBy      :: Maybe Text 
+          , postDate    :: Day 
+          , postID      :: Int 
           , postContent :: Text
           } deriving (Eq, Show)
 
@@ -51,7 +51,7 @@ instance FromRow Post where
 
 -- Threads hold threads!
 data Thread = Thread 
-            { threadOP :: Post 
+            { threadOP      :: Post 
             , threadReplies :: [Post]
             , threadOmitted :: Maybe Int
             } deriving (Eq, Show)
