@@ -2,8 +2,6 @@
 
 module Main where
 
-import Debug.Trace
-
 import Brick
 import Data.IP
 import Data.Char
@@ -14,8 +12,10 @@ import Data.String
 import Data.Monoid
 import Brick.Types
 import System.Process
+import Control.DeepSeq
 import Data.Text (Text)
 import System.Unix.Crypt
+import Control.Exception
 import Brick.Widgets.Edit
 import Graphics.Vty.Image
 import Control.Monad.Trans
@@ -90,6 +90,12 @@ makePost conn ip subject name content board reply = do
                           \WHERE post_id = "
                         , T.pack (show $ fromMaybe undefined reply)
                         ]
+
+-- Make a report
+makeReport :: Connection -> Int -> Int -> String -> IP -> IO ()
+makeReport conn id board reason ip = do
+    execute conn (Query report) (id, board, reason, show ip)
+  where report = "INSERT INTO reports VALUES(?, ?, ?, datetime('now'), ?)"
 
 -- Gets the name of a board from it's ID.
 getBoardName :: Connection -> Int -> IO String
@@ -217,6 +223,7 @@ data Page = Homepage (Dialog String)
           | ViewThread Int Int Thread Int
           | MakePost Int PostUI
           | Banned Int (Maybe String) String (Maybe UTCTime)
+          | MakeReport Int Int Editor
 
 -- In any selection in a series, the index needs to loop around when it is
 -- greater than the length of the series. These are helper functions to do
@@ -304,15 +311,6 @@ homepageDialog conn Config{ chanName = name, chanHomepageMsg = msg } = do
         choices = zip xs xs 
     return $ dialog "boardselect" (Just name) (Just (0, choices)) 50
 
--- Instructions shown at top of page.
-instructions :: Widget
-instructions = hBox . map (padLeftRight 10) $
-                   [ str "Ctrl+P to make a post"
-                   , str "Ctrl+Z to go back"
-                   , str "Ctrl+R to refresh page"
-                   , str "Esc to disconnect"
-                   ]
-
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
 drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage d)) =
@@ -322,12 +320,25 @@ drawUI (AppState _ _ _ (ViewBoard _ xs selected)) =
     [ hCenter instructions <=> 
       viewport "threads" Vertical (renderThreads selected xs) 
     ]
+  where instructions = hBox . map (padLeftRight 10) $
+                           [ str "Ctrl+P to make a post"
+                           , str "Ctrl+Z to go back"
+                           , str "F5 to refresh page"
+                           , str "Esc to disconnect"
+                           ]
 
 drawUI (AppState _ _ _ (ViewThread _ id thread selected)) =
     [ hCenter instructions <=>
       viewport "thread" Vertical (renderThread selected thread) <=>
       (hCenter . str $ "Viewing thread No. " ++ show id)
     ]
+  where instructions = hBox . map (padLeftRight 10) $
+                           [ str "Enter to reply"
+                           , str "Ctrl+Z to go back"
+                           , str "F5 to refresh page"
+                           , str "Ctrl+R to report post"
+                           , str "ESC to disconnect"
+                           ]
 
 drawUI (AppState _ _ _ (MakePost _ ui)) = [center $ renderPostUI ui]
 
@@ -341,6 +352,14 @@ drawUI (AppState _ ip _ (Banned _ from reason time)) =
     ]
   where showTime = (++" UTC") . show
         showFrom = fromMaybe "all boards"
+
+drawUI (AppState _ ip _ (MakeReport board id ed)) = 
+    [ hCenter (save <+> cancel) <=>
+      (center $ hCenter (str $ "Reporting post " ++ show id ++ ". Reason:") <=>
+               hCenter (vLimit 35 . hLimit 150 $ renderEditor ed))
+    ]
+  where save    = padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
+        cancel  = padBottom (Pad 1) $ str "Ctrl+C to cancel"
 
 -- Generate a ViewBoard page.
 viewBoard :: Connection -> Int -> IO Page
@@ -387,7 +406,7 @@ appEvent st@(AppState conn ip cfg (ViewBoard board xs selected)) ev =
         let id = postID . threadOP $ xs !! selected
         page <- liftIO $ viewThread conn board id
         continue (AppState conn ip cfg page)
-      EvKey (KChar 'r') [MCtrl] -> do
+      EvKey (KFun 5) []         -> do
         page <- liftIO $ viewBoard conn board 
         continue (AppState conn ip cfg page)
       EvKey (KChar 'z') [MCtrl] -> do
@@ -412,15 +431,19 @@ appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
       EvKey KDown []            ->
         continue $ AppState conn ip cfg
                        (ViewThread board id thread (selectNext selected len))
-      EvKey (KChar 'r') [MCtrl] -> do
+      EvKey (KFun 5) []         -> do
         page <- liftIO $ viewThread conn board id
         continue (AppState conn ip cfg page)
+      EvKey (KChar 'r') [MCtrl] -> do
+        let reportID = if selected == 0
+                         then id
+                         else postID (threadReplies thread !! (selected-1))
+            ed       = editor "report" (str . unlines) Nothing ""
+        continue $ AppState conn ip cfg
+                       (MakeReport board reportID ed)
       EvKey (KChar 'z') [MCtrl] -> do
         page <- liftIO $ viewBoard conn board
         continue (AppState conn ip cfg page)
-      EvKey (KChar 'p') [MCtrl] -> 
-        continue $ AppState conn ip cfg 
-                       (MakePost board (newPostUI (Just id) Nothing))
       EvKey KEnter []           -> do
         let reply = if selected == 0
                       then Nothing
@@ -492,6 +515,20 @@ appEvent st@(AppState conn ip cfg (Banned board _ _ _)) ev =
       EvKey KEnter [] -> do
         page <- liftIO $ viewBoard conn board
         continue (AppState conn ip cfg page)
+
+appEvent st@(AppState conn ip cfg (MakeReport board id ed)) ev =
+    case ev of
+      EvKey KEsc []             -> halt st
+      EvKey (KChar 'z') [MCtrl] -> do
+          page <- liftIO $ viewBoard conn board
+          continue (AppState conn ip cfg page)
+      EvKey (KChar 's') [MCtrl] -> do
+          liftIO $ makeReport conn id board (unlines $ getEditContents ed) ip
+          page <- liftIO $ viewBoard conn board
+          continue (AppState conn ip cfg page)
+      _                         -> do
+          ed' <- handleEvent ev ed
+          continue (AppState conn ip cfg (MakeReport board id ed'))
             
 
 -- This dictates where the cursor goes. Note that we don't give a shit
@@ -523,15 +560,15 @@ makeApp cfg =
 
 -- Get the IP address of who's connected.
 getIP :: IO String
-getIP = (\x -> trace (show x) x) . init <$> readCreateProcess (shell command) ""
+getIP = init <$> readCreateProcess (shell command) ""
   where command =
             "pinky | grep anon | sort -rk 5n | awk '{ print $7 }' | head -1"
 
 -- The first line garuantees that before anything else, we get the IP
 -- address of the SSH session.
 main :: IO ()
-main = flip ($!) ((\x -> read x :: IP) <$> getIP) $ \ip' -> do
-    ip   <- ip'
+main = flip ($) (force <$> getIP >>= evaluate) $ \ip' -> do
+    ip   <- (\x -> read x :: IP) <$> ip'
     conn <- open "chan.db"
     cfg  <- readConfig <$> readFile "chan.cfg"
     case cfg of
