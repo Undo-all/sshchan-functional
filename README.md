@@ -11,4 +11,4 @@ sshchan-functional is a pseudo-implimentation of sshchan (http://neetco.de/chibi
 ## TODO
 * Implement simple formatting 
 * Split up boardview into pages
-* Reporting
+* Ban appeals
