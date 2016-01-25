@@ -95,7 +95,7 @@ makePost conn ip subject name content board reply = do
 makeReport :: Connection -> Int -> Int -> String -> IP -> IO ()
 makeReport conn id board reason ip = do
     execute conn (Query report) (id, board, reason, show ip)
-  where report = "INSERT INTO reports VALUES(?, ?, ?, datetime('now'), ?)"
+  where report = "INSERT INTO reports VALUES(NULL, ?, ?, ?, datetime('now'), ?)"
 
 -- Gets the name of a board from it's ID.
 getBoardName :: Connection -> Int -> IO String

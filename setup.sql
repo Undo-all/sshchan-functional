@@ -27,3 +27,12 @@ CREATE TABLE bans (
     ban_until DATETIME
 );
 
+CREATE TABLE reports (
+    report_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    report_post INTEGER NOT NULL,
+    report_board INT(8) NOT NULL,
+    report_reason TEXT NOT NULL,
+    report_time DATETIME NOT NULL,
+    report_by VARCHAR(39) NOT NULL
+);
+
