@@ -67,12 +67,12 @@ genTripcode :: Text -> IO (Maybe Text)
 genTripcode xs
     | isJust (T.find (=='#') xs) =
       let (name, pass) = (\(x,y) -> (x, T.tail y)) . T.breakOn "#" $ xs
-      in do trip <- tripcode pass
+      in do trip <- T.pack . last10 <$> tripcode pass
             return . Just . (T.append (T.concat [name, " !"])) $ trip
     | otherwise              = return (Just xs)
-  where tripcode pass = T.pack . (\xs -> drop (length xs - 10) xs) <$>
-                            crypt (T.unpack pass) (salt . T.unpack $ pass) 
-        salt t = map f . take 2 . tail $ t ++ "H.."
+  where tripcode pass = crypt (T.unpack pass) (salt . T.unpack $ pass)
+        last10 xs     = drop (length xs - 10) xs
+        salt t        = map f . take 2 . tail $ t ++ "H.."
         f c | c `notElem` ['.'..'z'] = '.'
             | c `elem` [':'..'@']    = chr $ ord c + 7
             | c `elem` ['['..'`']    = chr $ ord c + 6
@@ -83,13 +83,11 @@ makePost :: Connection -> IP -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe
 makePost conn ip subject name content board reply = do
     trip <- maybe (return Nothing) genTripcode name
     execute conn (Query post) (show ip, subject, trip, content, board, reply)
-    when (isJust reply) $
-      execute_ conn (Query bump)
+    case reply of
+      Just n  -> execute conn (Query bump) (Only n)
+      Nothing -> return ()
   where post = "INSERT INTO posts VALUES(NULL,?,date('now'),datetime('now'),?,?,?,?,?)"
-        bump = T.concat [ "UPDATE posts SET post_last_bumped = datetime('now')\
-                          \WHERE post_id = "
-                        , T.pack (show $ fromMaybe undefined reply)
-                        ]
+        bump = "UPDATE posts SET post_last_bumped = datetime('now') WHERE post_id = ?"
 
 -- Make a report
 makeReport :: Connection -> Int -> Int -> String -> IP -> IO ()
@@ -100,34 +98,27 @@ makeReport conn id board reason ip = do
 -- Gets the name of a board from it's ID.
 getBoardName :: Connection -> Int -> IO String
 getBoardName conn id = do
-    [Only name] <- query_ conn (Query queryName)
+    [Only name] <- query conn queryName (Only id)
     return name
-  where queryName = T.concat [ "SELECT board_name FROM boards WHERE board_id = "
-                             , T.pack (show id)
-                             ]
+  where queryName = "SELECT board_name FROM boards WHERE board_id = ?"
 
 -- Opposite of getBoardName: gets a board's ID from it's name.
 getBoardID :: Connection -> String -> IO Int
 getBoardID conn name = do
-    [Only id] <- query_ conn (Query queryID)
+    [Only id] <- query conn queryID (Only name)
     return id
-  where queryID = T.concat [ "SELECT board_id FROM boards WHERE board_name = \""
-                           , T.pack name, "\""
-                           ]
+  where queryID = "SELECT board_id FROM boards WHERE board_name = ?"
 
 -- Fetch the replies to a post (slow?)
 getReplies :: Connection -> Bool -> Int -> Int -> IO [Post]
 getReplies conn limited id board = do
-    xs <- query_ conn (Query queryReplies)
+    xs <- query conn (Query queryReplies) (id, board)
     return $ if limited then reverse xs else xs
-  where base = T.concat [ "SELECT post_id, post_date, post_by, \
-                          \post_subject, post_content FROM posts WHERE \
-                          \post_reply = "
-                         , T.pack (show id)
-                         , " AND post_board = "
-                         , T.pack (show board)
-                         , " ORDER BY post_id"
-                        ]
+  where base = "SELECT post_id, post_date, post_by, \
+                \post_subject, post_content FROM posts WHERE \
+                \post_reply = ? \
+                \AND post_board = ? \
+                \ORDER BY post_id"
         queryReplies
             | limited = T.concat [ base, " DESC LIMIT 5" ]
             | otherwise = T.concat [ base, " ASC" ]
@@ -135,37 +126,29 @@ getReplies conn limited id board = do
 -- Get a thread from it's ID.
 getThread :: Connection -> Bool -> Int -> Int -> IO Thread
 getThread conn limited board id = do
-    [op]    <- query_ conn (Query queryOp)
+    [op]    <- query conn queryOp (id, board)
     replies <- getReplies conn limited id board 
     if limited
-      then do [Only n] <- query_ conn (Query queryLen)
+      then do [Only n] <- query conn queryLen (id, board)
               if n > 5
                 then return (Thread op replies (Just (n-5)))
                 else return (Thread op replies Nothing)
       else return (Thread op replies Nothing)
-  where queryOp = T.concat [ "SELECT post_id, post_date, post_by, post_subject\
-                             \, post_content FROM posts WHERE post_id = "
-                           , T.pack (show id)
-                           , " AND post_board = "
-                           , T.pack (show board)
-                           ]
-        queryLen = T.concat [ "SELECT count(*) FROM posts WHERE post_reply = "
-                            , T.pack (show id)
-                            , " AND post_board = "
-                            , T.pack (show board)
-                            ]
+  where queryOp = "SELECT post_id, post_date, post_by, post_subject, \
+                  \post_content FROM posts WHERE post_id = ? \
+                  \AND post_board = ?"
+        queryLen = "SELECT count(*) FROM posts WHERE post_reply = ? \
+                   \AND post_board = ?"
 
 -- Get the threads on a board.
 getThreads :: Connection -> Int -> IO [Thread]
 getThreads conn board = do
-    ops     <- query_ conn (Query queryOps)
+    ops     <- query conn queryOps (Only board)
     threads <- mapM (getThread conn True board . (\(Only id) -> id)) ops
     return threads
-  where queryOps = T.concat [ "SELECT post_id FROM posts WHERE post_reply IS\
-                              \ NULL AND post_board = "
-                            , T.pack (show board)
-                            , " ORDER BY post_last_bumped DESC"
-                            ]
+  where queryOps = "SELECT post_id FROM posts WHERE post_reply IS \
+                   \NULL AND post_board = ? \
+                   \ORDER BY post_last_bumped DESC"
 
 -- Renders a post.
 renderPost :: Bool -> Post -> Widget
@@ -462,14 +445,14 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
         page <- liftIO $ viewBoard conn board
         continue (AppState conn ip cfg page)
       EvKey (KChar 's') [MCtrl] -> do
-        banned <- liftIO $ query_ conn queryBanned
+        banned <- liftIO $ query_ conn "SELECT * FROM bans"
         case find (\(n, _, _, _) -> n == show ip) banned of
           Just (_, from, reason, time) -> do
             case from of
               Nothing   -> ban Nothing reason time 
               Just from -> if from == board then ban (Just board) reason time
                                             else post
-          Nothing -> post
+          Nothing                      -> post
       EvKey (KChar '\t') []      ->
         continue $ AppState
                      conn ip cfg
@@ -484,7 +467,8 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
         ban from reason time = do
             currTime <- liftIO $ getCurrentTime
             if isJust time && currTime > (fromMaybe undefined time)
-              then liftIO (execute_ conn queryRemoveBan) >> post
+              then do liftIO (execute conn queryRemoveBan (Only . show $ ip))
+                      post
               else case from of
                      Nothing   ->
                        continue (AppState conn ip cfg (Banned board Nothing reason time))
@@ -504,10 +488,7 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
                               board reply
                      xs' <- liftIO $ getThreads conn board 
                      continue (AppState conn ip cfg (ViewBoard board xs' 0))
-        queryBanned     = Query "SELECT * FROM bans"
-        queryRemoveBan  = Query $ T.concat [ "DELETE * FROM bans WHERE ban_ip = "
-                                           , T.pack (show ip)
-                                           ]
+        queryRemoveBan  = "DELETE * FROM bans WHERE ban_ip = ?"
 
 appEvent st@(AppState conn ip cfg (Banned board _ _ _)) ev =
     case ev of
