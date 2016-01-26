@@ -14,25 +14,17 @@ import qualified Data.Map as M
 import qualified Data.Text as T
 
 makeBoard :: Connection -> Text -> Text -> IO ()
-makeBoard conn name desc = execute_ conn (Query board)
-  where board = T.concat [ "INSERT INTO boards VALUES(NULL,"
-                         , T.pack (show name), ","
-                         , T.pack (show desc), ")"
-                         ]
+makeBoard conn name desc = execute conn queryBoard (name, desc)
+  where queryBoard = "INSERT INTO boards VALUES(NULL,?,?)"
 
 deleteBoard :: Connection -> Text -> IO ()
 deleteBoard conn name = do
-    execute_ conn (Query delete)
-    execute_ conn "UPDATE SQLITE_SEQUENCE SET SEQ=0 WHERE NAME=boards"
-  where delete = T.concat [ "DELETE FROM boards WHERE board_name = "
-                          , T.pack (show name)
-                          ]
+    execute conn queryDelete (Only name)
+  where queryDelete = "DELETE FROM boards WHERE board_name = ?"
 
 deletePost :: Connection -> Int -> IO ()
-deletePost conn id = execute_ conn (Query delete)
-  where delete = T.concat [ "DELETE FROM posts WHERE post_id = "
-                          , T.pack (show id)
-                          ]
+deletePost conn id = execute conn queryDelete (Only id)
+  where queryDelete = "DELETE FROM posts WHERE post_id = ?"
 
 banIP :: Connection -> String -> Maybe String -> String -> (Maybe UTCTime) -> IO ()
 banIP conn ip board reason time =
@@ -40,8 +32,8 @@ banIP conn ip board reason time =
   where ban = "INSERT INTO bans VALUES(?,?,?,?)"
 
 unbanIP :: Connection -> String -> IO ()
-unbanIP conn ip = execute_ conn (Query unban) 
-  where unban = T.concat [ "DELETE FROM bans WHERE ban_ip = ", T.pack (show ip)]
+unbanIP conn ip = execute conn queryUnban (Only ip)
+  where queryUnban = "DELETE FROM bans WHERE ban_ip = "
 
 data Command = Command
              { commandDesc    :: String
@@ -115,11 +107,8 @@ commandDeleteByIP =
       "delete all posts by an IP across boards"
       (1, Just 1)
       delete
-  where delete conn [ip] = execute_ conn (Query $ queryDelete ip)
-        queryDelete ip   =
-            T.concat [ "DELETE FROM posts WHERE post_ip = \""
-                     , T.pack ip, "\""
-                     ]
+  where delete conn [ip] = execute conn queryDelete (Only ip)
+        queryDelete      = "DELETE FROM posts WHERE post_ip = ?"
 
 commandBanIP :: Command
 commandBanIP =
