@@ -3,14 +3,16 @@
 module Main where
 
 import Brick
+import Format
 import Data.IP
 import Data.Char
 import Data.Time
 import Data.List
 import Data.Maybe
 import Data.String
-import Data.Monoid
 import Brick.Types
+import Data.Monoid
+import Brick.Markup
 import System.Process
 import Control.DeepSeq
 import Data.Text (Text)
@@ -25,6 +27,7 @@ import Brick.Widgets.Dialog
 import Control.Monad (when)
 import Database.SQLite.Simple
 import qualified Data.Text as T
+import Data.Text.Markup (Markup)
 import Graphics.Vty.Input.Events
 import Brick.Widgets.Border.Style
 import qualified Data.Vector as V
@@ -37,8 +40,8 @@ data Post = Post
           , postBy      :: Maybe Text 
           , postDate    :: Day 
           , postID      :: Int 
-          , postContent :: Text
-          } deriving (Eq, Show)
+          , postContent :: Markup Attr
+          } 
 
 -- There's definitely a cleaner way to do this...
 instance FromRow Post where
@@ -47,14 +50,14 @@ instance FromRow Post where
                  subject <- field 
                  name    <- field
                  content <- field
-                 return $ Post subject name date id content
+                 return $ Post subject name date id (parseFormat content)
 
 -- Threads hold threads!
 data Thread = Thread 
             { threadOP      :: Post 
             , threadReplies :: [Post]
             , threadOmitted :: Maybe Int
-            } deriving (Eq, Show)
+            } 
 
 -- Converts a Maybe value into a SQL value.
 showNull :: Show a => Maybe a -> Text
@@ -162,7 +165,7 @@ renderPost selected (Post subject name date id content) =
         idInfo        = str ("No. " ++ show id)
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
         info          = hBox $ map (padRight (Pad 1)) allInfo
-        body          = txt content
+        body          = markup content
         borderStyle   = if selected then unicodeBold else unicode
     in withBorderStyle borderStyle . border $
            padBottom (Pad 1) info <=> padRight (Pad 1) body
