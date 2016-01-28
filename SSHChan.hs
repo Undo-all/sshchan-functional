@@ -2,8 +2,6 @@
 
 module Main where
 
-import System.IO.Unsafe
-
 import Brick
 import Format
 import Data.IP
@@ -547,10 +545,7 @@ makeApp cfg =
 
 -- Get the IP address of who's connected.
 getIP :: String -> IO String
-getIP usr = do
-    xs <- init <$> readCreateProcess (shell command) ""
-    writeFile "ip.txt" xs
-    return xs
+getIP usr = init <$> readCreateProcess (shell command) ""
   where command =
             "pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $7 }' | head -1"
 
