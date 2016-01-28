@@ -5,6 +5,7 @@ sshchan-functional is a pseudo-implimentation of sshchan (http://neetco.de/chibi
 * Entirely different GUI
 * Uses an sqlite database to store boards, posts, bans, etc. (sshchan uses files and directories instead)
 * Banning
+* Reporting
 * Greater speed (probably)
 
 ## TODO
