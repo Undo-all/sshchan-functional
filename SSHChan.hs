@@ -2,6 +2,8 @@
 
 module Main where
 
+import System.IO.Unsafe
+
 import Brick
 import Format
 import Data.IP
@@ -545,7 +547,10 @@ makeApp cfg =
 
 -- Get the IP address of who's connected.
 getIP :: String -> IO String
-getIP usr = init <$> readCreateProcess (shell command) ""
+getIP usr = do
+    xs <- init <$> readCreateProcess (shell command) ""
+    writeFile "ip.txt" xs
+    return xs
   where command =
             "pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $7 }' | head -1"
 
@@ -553,19 +558,13 @@ getIP usr = init <$> readCreateProcess (shell command) ""
 -- address of the SSH session.
 main :: IO ()
 main = do
-    (ip', cfg) <- prereq 
-    let ip = either error (\x -> read x :: IP) ip'
-    conn <- open "chan.db"
+    cfg <- readConfig <$> readFile "chan.cfg"
     case cfg of
       Left err  -> putStrLn $ "Error parsing config file " ++ err
-      Right cfg -> do
+      Right cfg -> do 
+          conn <- open "chan.db"
+          ip   <- (\x -> read x :: IP) <$> getIP (chanUser cfg)
           d    <- homepageDialog conn cfg
-          defaultMain (makeApp cfg) (AppState conn ip cfg (Homepage d))
+          ip `seq` defaultMain (makeApp cfg) (AppState conn ip cfg (Homepage d))
           return ()
-  where prereq = do cfg <- readConfig <$> readFile "chan.cfg"
-                    let ip = case cfg of
-                               Left err  -> return (Left err)
-                               Right cfg -> Right <$> getIP (chanUser cfg)
-                    ip' <- force <$> ip >>= evaluate
-                    return (ip', cfg)
 
