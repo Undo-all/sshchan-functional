@@ -272,6 +272,7 @@ renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
 -- The configuration of the chan.
 data Config = Config
             { chanName :: String
+            , chanUser :: String
             , chanHomepageMsg :: String
             , chanDialogAttr :: Attr
             , chanButtonAttr :: Attr
@@ -543,22 +544,28 @@ makeApp cfg =
         }
 
 -- Get the IP address of who's connected.
-getIP :: IO String
-getIP = init <$> readCreateProcess (shell command) ""
+getIP :: String -> IO String
+getIP usr = init <$> readCreateProcess (shell command) ""
   where command =
-            "pinky | grep anon | sort -rk 5n | awk '{ print $7 }' | head -1"
+            "pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $7 }' | head -1"
 
 -- The first line garuantees that before anything else, we get the IP
 -- address of the SSH session.
 main :: IO ()
-main = flip ($) (force <$> getIP >>= evaluate) $ \ip' -> do
-    ip   <- (\x -> read x :: IP) <$> ip'
+main = do
+    (ip', cfg) <- prereq 
+    let ip = either error (\x -> read x :: IP) ip'
     conn <- open "chan.db"
-    cfg  <- readConfig <$> readFile "chan.cfg"
     case cfg of
       Left err  -> putStrLn $ "Error parsing config file " ++ err
       Right cfg -> do
           d    <- homepageDialog conn cfg
           defaultMain (makeApp cfg) (AppState conn ip cfg (Homepage d))
           return ()
+  where prereq = do cfg <- readConfig <$> readFile "chan.cfg"
+                    let ip = case cfg of
+                               Left err  -> return (Left err)
+                               Right cfg -> Right <$> getIP (chanUser cfg)
+                    ip' <- force <$> ip >>= evaluate
+                    return (ip', cfg)
 
