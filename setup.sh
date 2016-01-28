@@ -6,6 +6,7 @@ printf "BEFORE you start this setup script, you should already have:\n"
 printf "* openssh-server\n"
 printf "* ghc\n"
 printf "* cabal\n"
+printf "* sqlite3"
 printf "all installed, so if you don't, Ctrl+C now and get them! [Enter to continue]"
 read 
 printf "Got them? Good!\n"
