@@ -348,11 +348,11 @@ drawUI (AppState _ ip _ (Banned _ from reason time)) =
         showFrom = fromMaybe "all boards"
 
 drawUI (AppState _ ip _ (MakeReport board id ed)) = 
-    [ hCenter (save <+> cancel) <=>
+    [ hCenter (hLimit 100 $ save <+> cancel) <=>
       (center $ hCenter (str $ "Reporting post " ++ show id ++ ". Reason:") <=>
-               hCenter (vLimit 35 . hLimit 150 $ renderEditor ed))
+                hCenter (vLimit 25 . hLimit 100 $ renderEditor ed))
     ]
-  where save    = padLeft (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
+  where save    = padRight Max . padBottom (Pad 1) $ str "Ctrl+S to save"
         cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
 
 -- Generate a ViewBoard page.
