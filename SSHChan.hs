@@ -2,6 +2,7 @@
 
 module Main where
 
+import Wrap
 import Brick
 import Format
 import Data.Char
@@ -166,7 +167,7 @@ renderPost selected (Post subject name date id content) =
         idInfo        = str ("No. " ++ show id)
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
         info          = hBox $ map (padRight (Pad 1)) allInfo
-        body          = markup content
+        body          = markupWrapping content
         borderStyle   = if selected then unicodeBold else unicode
     in withBorderStyle borderStyle . border $
            padBottom (Pad 1) info <=> padRight (Pad 1) body
