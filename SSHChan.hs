@@ -547,7 +547,7 @@ makeApp cfg =
 getIP :: String -> IO String
 getIP usr = init <$> readCreateProcess (shell command) ""
   where command =
-            "pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $7 }' | head -1"
+            "getent hosts $(pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $8 }' | head -1) | awk '{ print $1 }'"
 
 -- The first line garuantees that before anything else, we get the IP
 -- address of the SSH session.
