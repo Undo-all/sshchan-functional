@@ -4,6 +4,7 @@ module Wrap (markupWrapping) where
 -- This module provides wrapping versions of markup.
 -- It's horrifyingly ugly, I'll clean it up sometime.
 
+import Data.Char
 import Data.List
 import Brick.Util
 import Brick.Types
@@ -24,11 +25,11 @@ wrap i n (x:xs)
     | i == 0    = (['\n',x]++) <$> wrap n n xs
     | otherwise = (x:) <$> wrap (i-1) n xs
 
-wrapMarkup :: (Eq a, GetAttr a) => Int -> [(Text, a)] -> [([Text], a)]
-wrapMarkup n [] = []
-wrapMarkup n (x:xs) =
-    let (r, w) = wrap n n $ T.unpack (fst x)
-    in (map T.pack (getLines w), snd x) : wrapMarkup r xs
+wrapMarkup :: (Eq a, GetAttr a) => Int -> Int -> [(Text, a)] -> [([Text], a)]
+wrapMarkup i n [] = []
+wrapMarkup i n (x:xs) =
+    let (r, w) = wrap i n $ T.unpack (fst x)
+    in (map T.pack (getLines w), snd x) : wrapMarkup i n xs
 
 getLines :: String -> [String]
 getLines s =
@@ -42,7 +43,7 @@ markupWrapping m =
     Widget Fixed Fixed $ do
       c <- getContext
       let w     = availWidth c
-          pairs = wrapMarkup w . markupToList $ m
+          pairs = wrapMarkup w w . markupToList $ m
       imgs <- forM pairs $ \(l, aSrc) -> do
           a <- getAttr aSrc
           case l of
