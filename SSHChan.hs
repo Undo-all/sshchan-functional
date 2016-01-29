@@ -260,15 +260,15 @@ updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
 renderPostUI :: PostUI -> Widget
 renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
     vBox [ info, fields, content ]
-  where save    = padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
+  where save    = padRight (Max) . padBottom (Pad 1) $ str "Ctrl+S to save"
         cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
-        info    = save <+> cancel
+        info    = hLimit 100 (save <+> cancel)
         editors = [ str "Subject: ", renderEditor ed1
                   , padLeft (Pad 1) $ str "Name: ", renderEditor ed2
                   , padLeft (Pad 1) $ str "Reply to: ", renderEditor ed3
                   ] 
-        fields  = vLimit 35 . hLimit 150 . padBottom (Pad 1) . hBox $ editors
-        content = vLimit 35 . hLimit 150 $ renderEditor ed4
+        fields  = vLimit 25 . hLimit 100 . padBottom (Pad 1) . hBox $ editors
+        content = vLimit 25 . hLimit 100 $ renderEditor ed4
 
 -- The configuration of the chan.
 data Config = Config
@@ -308,25 +308,31 @@ drawUI (AppState _ _ _ (ViewBoard _ xs selected)) =
     [ hCenter instructions <=> 
       viewport "threads" Vertical (renderThreads selected xs) 
     ]
-  where instructions = hBox . map (padLeftRight 10) $
-                           [ str "Ctrl+P to make a post"
+  where instructions = hBox . intersperse space $
+                           [ space
+                           , str "Ctrl+P to make a post"
                            , str "Ctrl+Z to go back"
                            , str "F5 to refresh page"
                            , str "Esc to disconnect"
+                           , space
                            ]
+        space = vLimit 1 $ fill ' '
 
 drawUI (AppState _ _ _ (ViewThread _ id thread selected)) =
     [ hCenter instructions <=>
       viewport "thread" Vertical (renderThread selected thread) <=>
       (hCenter . str $ "Viewing thread No. " ++ show id)
     ]
-  where instructions = hBox . map (padLeftRight 10) $
-                           [ str "Enter to reply"
+  where instructions = hBox . intersperse space $
+                           [ space
+                           , str "Enter to reply"
                            , str "Ctrl+Z to go back"
                            , str "F5 to refresh page"
                            , str "Ctrl+R to report post"
                            , str "ESC to disconnect"
+                           , space
                            ]
+        space = vLimit 1 $ fill ' '
 
 drawUI (AppState _ _ _ (MakePost _ ui)) = [center $ renderPostUI ui]
 
@@ -346,7 +352,7 @@ drawUI (AppState _ ip _ (MakeReport board id ed)) =
       (center $ hCenter (str $ "Reporting post " ++ show id ++ ". Reason:") <=>
                hCenter (vLimit 35 . hLimit 150 $ renderEditor ed))
     ]
-  where save    = padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
+  where save    = padLeft (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
         cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
 
 -- Generate a ViewBoard page.
