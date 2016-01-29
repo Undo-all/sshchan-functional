@@ -4,7 +4,6 @@ module Main where
 
 import Brick
 import Format
-import Data.IP
 import Data.Char
 import Data.Time
 import Data.List
@@ -33,6 +32,8 @@ import Brick.Widgets.Border.Style
 import qualified Data.Vector as V
 import Database.SQLite.Simple.FromField
 import Text.Read (readMaybe, readEither)
+
+type IP = String
 
 -- Posts hold posts!
 data Post = Post
@@ -85,7 +86,7 @@ genTripcode xs
 makePost :: Connection -> IP -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn ip subject name content board reply = do
     trip <- maybe (return Nothing) genTripcode name
-    execute conn (Query post) (show ip, subject, trip, content, board, reply)
+    execute conn (Query post) (ip, subject, trip, content, board, reply)
     case reply of
       Just n  -> execute conn (Query bump) (Only n)
       Nothing -> return ()
@@ -95,7 +96,7 @@ makePost conn ip subject name content board reply = do
 -- Make a report
 makeReport :: Connection -> Int -> Int -> String -> IP -> IO ()
 makeReport conn id board reason ip = do
-    execute conn (Query report) (id, board, reason, show ip)
+    execute conn (Query report) (id, board, reason, ip)
   where report = "INSERT INTO reports VALUES(NULL, ?, ?, ?, datetime('now'), ?)"
 
 -- Gets the name of a board from it's ID.
@@ -334,7 +335,7 @@ drawUI (AppState _ ip _ (Banned _ from reason time)) =
       (hCenter . str $ "You have been banned from " ++ showFrom from) <=>
       (hCenter . str $ "This ban will expire: " ++ maybe "never" showTime time) <=>
       (hCenter . str $ "Reason: " ++ reason) <=>
-      (hCenter . str $ "Your IP: " ++ show ip) <=>
+      (hCenter . str $ "Your IP: " ++ ip) <=>
       (hCenter . str $ "Press enter to continue.")
     ]
   where showTime = (++" UTC") . show
@@ -450,7 +451,7 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
         continue (AppState conn ip cfg page)
       EvKey (KChar 's') [MCtrl] -> do
         banned <- liftIO $ query_ conn "SELECT * FROM bans"
-        case find (\(n, _, _, _) -> n == show ip) banned of
+        case find (\(n, _, _, _) -> n == ip) banned of
           Just (_, from, reason, time) -> do
             case from of
               Nothing   -> ban Nothing reason time 
@@ -547,7 +548,7 @@ makeApp cfg =
 getIP :: String -> IO String
 getIP usr = init <$> readCreateProcess (shell command) ""
   where command =
-            "getent hosts $(pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $8 }' | head -1) | awk '{ print $1 }'"
+            "pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $8 }' | head -1"
 
 -- The first line garuantees that before anything else, we get the IP
 -- address of the SSH session.
@@ -558,7 +559,7 @@ main = do
       Left err  -> putStrLn $ "Error parsing config file " ++ err
       Right cfg -> do 
           conn <- open "chan.db"
-          ip   <- (\x -> read x :: IP) <$> getIP (chanUser cfg)
+          ip   <- getIP (chanUser cfg)
           d    <- homepageDialog conn cfg
           ip `seq` defaultMain (makeApp cfg) (AppState conn ip cfg (Homepage d))
           return ()
