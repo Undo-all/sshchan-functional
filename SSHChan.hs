@@ -68,7 +68,7 @@ showNull (Just x) = T.pack (show x)
 -- Generate a tripcode.
 -- Code adapted from http://cairnarvon.rotahall.org/2009/01/09/ofioc/
 genTripcode :: Text -> IO (Maybe Text)
-genTripcode xs
+genTripcode xs 
     | isJust (T.find (=='#') xs) =
       let (name, pass) = (\(x,y) -> (x, T.tail y)) . T.breakOn "#" $ xs
       in do trip <- T.pack . last10 <$> tripcode pass
@@ -261,7 +261,7 @@ renderPostUI :: PostUI -> Widget
 renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
     vBox [ info, fields, content ]
   where save    = padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
-        cancel  = padBottom (Pad 1) $ str "Ctrl+C to cancel"
+        cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
         info    = save <+> cancel
         editors = [ str "Subject: ", renderEditor ed1
                   , padLeft (Pad 1) $ str "Name: ", renderEditor ed2
@@ -347,7 +347,7 @@ drawUI (AppState _ ip _ (MakeReport board id ed)) =
                hCenter (vLimit 35 . hLimit 150 $ renderEditor ed))
     ]
   where save    = padRight (Pad 120) . padBottom (Pad 1) $ str "Ctrl+S to save"
-        cancel  = padBottom (Pad 1) $ str "Ctrl+C to cancel"
+        cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
 
 -- Generate a ViewBoard page.
 viewBoard :: Connection -> Int -> IO Page
@@ -446,7 +446,7 @@ appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
 appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 ed4))) ev =
     case ev of
       EvKey KEsc []             -> halt st
-      EvKey (KChar 'c') [MCtrl] -> do
+      EvKey (KChar 'z') [MCtrl] -> do
         page <- liftIO $ viewBoard conn board
         continue (AppState conn ip cfg page)
       EvKey (KChar 's') [MCtrl] -> do
@@ -550,8 +550,6 @@ getIP usr = init <$> readCreateProcess (shell command) ""
   where command =
             "pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $8 }' | head -1"
 
--- The first line garuantees that before anything else, we get the IP
--- address of the SSH session.
 main :: IO ()
 main = do
     cfg <- readConfig <$> readFile "chan.cfg"
