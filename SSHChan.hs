@@ -303,7 +303,7 @@ homepageDialog conn Config{ chanName = name, chanHomepageMsg = msg } = do
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
 drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage d)) =
-    [renderDialog d . hCenter . padAll 1 $ str msg]
+    [(renderDialog d . hCenter . padAll 1 $ str msg) <=> hCenter (str "Tab to select board")]
 
 drawUI (AppState _ _ _ (ViewBoard _ xs selected)) =
     [ hCenter instructions <=> 
