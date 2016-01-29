@@ -21,9 +21,13 @@ import qualified Data.Text as T
 
 wrap :: Int -> Int -> String -> (Int, String)
 wrap i n [] = (i, "")
-wrap i n (x:xs)
-    | i == 0    = (['\n',x]++) <$> wrap n n xs
-    | otherwise = (x:) <$> wrap (i-1) n xs
+wrap i n xs
+    | isSpace (head xs)    = (head xs :) <$> wrap (i-1) n (tail xs)
+    | length word > n      = (("\n"++(take n word)++"\n")++) <$> wrap (length word) n rest
+    | i - length word <= 0 = (('\n':word)++) <$> wrap (n - length word) n rest
+    | otherwise            = (word++) <$> wrap (i - length word) n rest
+  where word = takeWhile (not . isSpace) xs
+        rest = dropWhile (not . isSpace) xs
 
 wrapMarkup :: (Eq a, GetAttr a) => Int -> Int -> [(Text, a)] -> [([Text], a)]
 wrapMarkup i n [] = []
@@ -33,9 +37,10 @@ wrapMarkup i n (x:xs) =
 
 getLines :: String -> [String]
 getLines s =
-    let theLines     = map fixEmpty $ lines s
+    let theLines     = map (fixEnd . fixEmpty) $ lines s
         fixEmpty []  = " " :: String
         fixEmpty l   = l
+        fixEnd       = reverse . dropWhile isSpace . reverse
     in force theLines
 
 markupWrapping :: (Eq a, GetAttr a) => Markup a -> Widget
