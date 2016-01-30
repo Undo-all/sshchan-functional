@@ -24,6 +24,7 @@ import qualified Data.Text as T
 wrap :: Int -> Int -> String -> (Int, String)
 wrap i n [] = (i, "")
 wrap i n (x:xs)
+    | x == '\n' = ('\n':) <$> wrap n n xs
     | i == 0    = (['\n',x]++) <$> wrap n n xs
     | otherwise = (x:) <$> wrap (i - 1) n xs
 
