@@ -13,6 +13,9 @@ import Database.SQLite.Simple
 import qualified Data.Map as M
 import qualified Data.Text as T
 
+readInt :: String -> Maybe Int
+readInt x = readMaybe x :: Maybe Int
+
 makeBoard :: Connection -> Text -> Text -> IO ()
 makeBoard conn name desc = execute conn queryBoard (name, desc)
   where queryBoard = "INSERT INTO boards VALUES(NULL,?,?)"
@@ -99,7 +102,6 @@ commandDeletePosts =
       delete
   where delete conn xs = let nums = catMaybes . map readInt $ xs
                          in mapM_ (deletePost conn) nums
-        readInt x      = read x :: Maybe Int
 
 commandDeleteByIP :: Command
 commandDeleteByIP =
@@ -124,10 +126,9 @@ commandBanIP =
             currTime <- getCurrentTime
             banIP conn ip (parseBoard board) reason (Just $ addUTCTime add currTime)
 
-        parseTime xs     = fromIntegral (60 * readInt xs) 
+        parseTime xs     = fromIntegral (60 * (read xs :: Int)) 
         parseBoard "all" = Nothing
         parseBoard xs    = Just xs
-        readInt x = read x :: Int
 
 commandUnbanIP :: Command
 commandUnbanIP =
@@ -200,7 +201,6 @@ commandDismissReports =
                                  in mapM_ (dismiss conn) nums
         dismiss conn id        =
             execute conn "DELETE FROM reports WHERE report_id = ?" (Only id)
-        readInt x              = readMaybe x :: Maybe Int
 
 commandClearReports :: Command
 commandClearReports =
@@ -208,6 +208,36 @@ commandClearReports =
       "clear all reports"
       (0, Nothing)
       (\conn _ -> execute_ conn "DELETE FROM reports")
+
+commandStickyPost :: Command
+commandStickyPost =
+    Command
+      "sticky a post"
+      (2, Just 2)
+      sticky
+  where sticky conn [b, y] =
+          case readInt y of
+                 Just id -> do
+                   [Only bId] <- query conn "SELECT board_id FROM boards WHERE board_name = ?" (Only b)
+                   execute conn stickyQuery (id, bId :: Int)
+                 Nothing -> putStrLn $ "error: not an integer"
+        stickyQuery        =
+          "UPDATE posts SET post_stickied = 1 WHERE post_id = ? AND post_board = ?"
+
+commandLockPost :: Command
+commandLockPost =
+    Command
+      "lock a post"
+      (2, Just 2)
+      lock
+  where lock conn [b, y] =
+          case readInt y of
+                 Just id -> do
+                   [Only bId] <- query conn "SELECT board_id FROM boards WHERE board_name = ?" (Only b)
+                   execute conn stickyQuery (id, bId :: Int)
+                 Nothing -> putStrLn $ "error: not an integer"
+        stickyQuery      =
+          "UPDATE posts SET post_locked = 1 WHERE post_id = ? AND post_board = ?"
 
 commands :: M.Map String Command
 commands = M.fromList
@@ -225,6 +255,8 @@ commands = M.fromList
                , ("dismiss-reports", commandDismissReports)
                , ("clear-reports", commandClearReports)
                , ("get-ip", commandGetIP)
+               , ("sticky-post", commandStickyPost)
+               , ("lock-post", commandLockPost)
                ]
 
 eval :: Connection -> String -> [String] -> IO ()

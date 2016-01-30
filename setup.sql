@@ -11,6 +11,8 @@ CREATE TABLE posts (
     post_ip VARCHAR(39),
     post_date DATE NOT NULL,
     post_last_bumped DATETIME NOT NULL,
+    post_stickied BOOLEAN NOT NULL,
+    post_locked BOOLEAN NOT NULL,
     post_subject VARCHAR(255),
     post_by VARCHAR(255),
     post_content TEXT NOT NULL,

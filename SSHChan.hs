@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# languAGE OverloadedStrings #-}
 
 module Main where
 
@@ -56,9 +56,11 @@ instance FromRow Post where
 
 -- Threads hold threads!
 data Thread = Thread 
-            { threadOP      :: Post 
-            , threadReplies :: [Post]
-            , threadOmitted :: Maybe Int
+            { threadOP       :: Post 
+            , threadReplies  :: [Post]
+            , threadOmitted  :: Maybe Int
+            , threadStickied :: Bool
+            , threadLocked   :: Bool
             } 
 
 -- Converts a Maybe value into a SQL value.
@@ -87,11 +89,11 @@ genTripcode xs
 makePost :: Connection -> IP -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
 makePost conn ip subject name content board reply = do
     trip <- maybe (return Nothing) genTripcode name
-    execute conn (Query post) (ip, subject, trip, content, board, reply)
+    execute conn post (ip, subject, trip, content, board, reply)
     case reply of
-      Just n  -> execute conn (Query bump) (Only n)
+      Just n  -> execute conn bump (Only n)
       Nothing -> return ()
-  where post = "INSERT INTO posts VALUES(NULL,?,date('now'),datetime('now'),?,?,?,?,?)"
+  where post = "INSERT INTO posts VALUES(NULL,?,date('now'),datetime('now'),0,0,?,?,?,?,?)"
         bump = "UPDATE posts SET post_last_bumped = datetime('now') WHERE post_id = ?"
 
 -- Make a report
@@ -131,17 +133,18 @@ getReplies conn limited id board = do
 -- Get a thread from it's ID.
 getThread :: Connection -> Bool -> Int -> Int -> IO Thread
 getThread conn limited board id = do
-    [op]    <- query conn queryOp (id, board)
+    [(id, date, by, subj, content, stick, lock)] <- query conn queryOp (id, board)
+    let post = Post subj by date id (parseFormat content)
     replies <- getReplies conn limited id board 
     if limited
       then do [Only n] <- query conn queryLen (id, board)
               if n > 5
-                then return (Thread op replies (Just (n-5)))
-                else return (Thread op replies Nothing)
-      else return (Thread op replies Nothing)
+                then return (Thread post replies (Just (n-5)) stick lock)
+                else return (Thread post replies Nothing stick lock)
+      else return (Thread post replies Nothing stick lock)
   where queryOp = "SELECT post_id, post_date, post_by, post_subject, \
-                  \post_content FROM posts WHERE post_id = ? \
-                  \AND post_board = ?"
+                  \post_content, post_stickied, post_locked FROM posts \
+                  \WHERE post_id = ? AND post_board = ?"
         queryLen = "SELECT count(*) FROM posts WHERE post_reply = ? \
                    \AND post_board = ?"
 
@@ -153,11 +156,11 @@ getThreads conn board = do
     return threads
   where queryOps = "SELECT post_id FROM posts WHERE post_reply IS \
                    \NULL AND post_board = ? \
-                   \ORDER BY post_last_bumped DESC"
+                   \ORDER BY post_stickied, post_last_bumped DESC"
 
 -- Renders a post.
-renderPost :: Bool -> Post -> Widget
-renderPost selected (Post subject name date id content) =
+renderPost :: Bool -> Bool -> Bool -> Post -> Widget
+renderPost selected stickied locked (Post subject name date id content) =
     let renderSubject =
           raw . string (Attr (SetTo bold) (SetTo blue) Default) . T.unpack
         subjectInfo   = maybe emptyWidget renderSubject subject
@@ -165,25 +168,23 @@ renderPost selected (Post subject name date id content) =
         nameInfo      = renderName $ maybe "Anonymous" T.unpack name
         dateInfo      = str (showGregorian date)
         idInfo        = str ("No. " ++ show id)
-        allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo]
+        stickmsg      = if stickied then str "(stickied)" else emptyWidget
+        lockmsg       = if locked then str "(locked)" else emptyWidget
+        allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo, stickmsg, lockmsg]
         info          = hBox $ map (padRight (Pad 1)) allInfo
         body          = markupWrapping content
         borderStyle   = if selected then unicodeBold else unicode
     in withBorderStyle borderStyle . border $
            padBottom (Pad 1) info <=> padRight (Pad 1) body
 
--- Render several posts.
-renderPosts :: [Post] -> Widget
-renderPosts = vBox . map (renderPost False)
-
 -- Render a thread 
 renderThread :: Int -> Thread -> Widget
-renderThread selected (Thread op xs omitted)
-    | selected == (-1) = renderPost False op <=> omitMsg <=>
-                         padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
-    | selected == 0    = visible $ renderPost True op <=> omitMsg <=>
-                         padLeft (Pad 2) (vBox . map (renderPost False) $ xs)
-    | otherwise        = renderPost False op <=> omitMsg <=>
+renderThread selected (Thread op xs omitted stickied locked)
+    | selected == (-1) = renderPost False stickied locked op <=> omitMsg <=>
+                         padLeft (Pad 2) (vBox . map (renderPost False False False) $ xs)
+    | selected == 0    = visible $ renderPost True stickied locked op <=> omitMsg <=>
+                         padLeft (Pad 2) (vBox . map (renderPost False False False) $ xs)
+    | otherwise        = renderPost False stickied locked op <=> omitMsg <=>
                          padLeft (Pad 2) 
                              (vBox . map renderSelected . indexes $ xs)
   where indexes xs = zip xs [0..length xs - 1]
@@ -193,8 +194,8 @@ renderThread selected (Thread op xs omitted)
               Just n  -> padLeft (Pad 2) . str $ 
                              show n ++ " posts omitted. Hit enter to view."
         renderSelected (post, index)
-            | index + 1 == selected = visible (renderPost True post)
-            | otherwise             = renderPost False post
+            | index + 1 == selected = visible (renderPost True False False post)
+            | otherwise             = renderPost False False False post
 
 -- Render several threads (these comments are helpful, aren't they?)
 renderThreads :: Int -> [Thread] -> Widget
@@ -413,7 +414,7 @@ appEvent st@(AppState conn ip cfg (ViewBoard board xs selected)) ev =
       _                         -> continue st
   where len = length xs
 
-appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
+appEvent st@(AppState conn ip cfg vt@(ViewThread board id thread selected)) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey KHome []            ->
@@ -443,8 +444,10 @@ appEvent st@(AppState conn ip cfg (ViewThread board id thread selected)) ev =
         let reply = if selected == 0
                       then Nothing
                       else Just $ postID (threadReplies thread !! (selected-1))
-        continue $ AppState conn ip cfg
-                       (MakePost board $ newPostUI (Just id) reply)
+            page  = if threadLocked thread == True
+                      then vt
+                      else MakePost board $ newPostUI (Just id) reply
+        continue $ AppState conn ip cfg page
       _                         -> continue st
   where len = length (threadReplies thread) + 1
 

@@ -10,7 +10,6 @@ sshchan-functional is a pseudo-implimentation of sshchan (http://neetco.de/chibi
 
 ## TODO
 * Split up boardview into pages
-* Stickied threads
 * Special moderator indicators (## Mod, different color, etc.)
 * Ban messages (USER WAS BANNED FOR THIS POST)
 * Ban appeals
