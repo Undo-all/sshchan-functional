@@ -4,6 +4,7 @@ module Wrap (markupWrapping) where
 -- This module provides wrapping versions of markup.
 -- It's horrifyingly ugly, I'll clean it up sometime.
 
+import Debug.Trace
 import Data.Ord
 import Data.Char
 import Data.List
@@ -28,35 +29,32 @@ wrap i n (x:xs)
     | i == 0    = (['\n',x]++) <$> wrap n n xs
     | otherwise = (x:) <$> wrap (i - 1) n xs
 
-wrapMarkup :: (Eq a, GetAttr a) => Int -> Int -> [(Text, a)] -> [([Text], a)]
-wrapMarkup i n [] = []
-wrapMarkup i n (x:xs) =
+wrapMarkup :: (Eq a, GetAttr a) => Int -> Int -> [[(Text, a)]] -> [(Text, a)] -> [[(Text, a)]]
+wrapMarkup i n tmp []     = reverse (map reverse tmp)
+wrapMarkup i n tmp (x:xs) =
     let (r, w) = wrap i n $ T.unpack (fst x)
-    in (map T.pack (fixLines w), snd x) : wrapMarkup r n xs
-
-fixLines :: String -> [String]
-fixLines s =
-    let theLines     = map (fixEmpty . fixEnd) $ lines s
-        fixEmpty []  = " " :: String
-        fixEmpty l   = l
-        fixEnd       = reverse . dropWhile isSpace . reverse
-    in force theLines
+    in if not ('\n' `elem` w)
+         then wrapMarkup r n ((T.pack w, snd x) `appendHead` tmp) xs
+         else wrapMarkup r n (reverse (map (\a -> [(T.pack a, snd x)]) (lines w)) ++ tmp) xs
+  where appendHead x (xs:xss) = (x:xs):xss
 
 markupWrapping :: (Eq a, GetAttr a) => Markup a -> Widget
 markupWrapping m =
     Widget Fixed Fixed $ do
       c <- getContext
       let w     = availWidth c
-          pairs = wrapMarkup w w . markupToList $ m
-      imgs <- forM pairs $ \(l, aSrc) -> do
+          pairs = wrapMarkup w w [[]] . markupToList $ m
+      imgs <- mapM (fmap horizCat . mapM imgStr) pairs
+      return $ def & imageL .~ vertCat imgs
+  where imgStr (s, aSrc) = do
           a <- getAttr aSrc
-          case l of
-            []       -> return emptyImage
-            [one]    -> return $ text' a one
-            multiple ->
-                let maxLength    = maximum $ T.length <$> multiple
-                    lineImgs     = lineImg <$> multiple
-                    lineImg lStr = text' a (T.concat [lStr, T.replicate (maxLength - T.length lStr) " "])
-                in return $ vertCat lineImgs
-      return $ def & imageL .~ horizCat imgs
-
+          return $ text' a s
+          {-
+          case s of         
+                 []       -> text' a " "
+                 [one]    -> text' a one
+                 multiple ->
+                     let lineImgs     = map lineImg multiple
+                         lineImg lStr = if T.null lStr then text' a " " else text' a lStr
+                     in return $ vertCat lineImgs
+-}
