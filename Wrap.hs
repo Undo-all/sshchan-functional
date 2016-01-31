@@ -48,7 +48,7 @@ markupWrapping m =
       return $ def & imageL .~ vertCat imgs
   where imgStr (s, aSrc) = do
           a <- getAttr aSrc
-          return $ text' a s
+          return $ if T.null s then text' a " " else text' a s
           {-
           case s of         
                  []       -> text' a " "
