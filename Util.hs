@@ -17,8 +17,10 @@ import Data.Char
 import Data.Maybe
 import Data.Text (Text)
 import System.Unix.Crypt
+import Data.Vector (Vector)
 import Database.SQLite.Simple
 import qualified Data.Text as T
+import qualified Data.Vector as V
 
 -- Tripcode generation code adapted 
 -- from http://cairnarvon.rotahall.org/2009/01/09/ofioc/
@@ -100,7 +102,7 @@ getThread :: Connection -> Bool -> Int -> Int -> IO Thread
 getThread conn limited board id = do
     [(id, date, by, subj, cont, stick, lock)] <- query conn queryOp (id, board)
     let post = Post subj by date id (parseFormat cont)
-    replies <- getReplies conn limited id board 
+    replies <- V.fromList <$> getReplies conn limited id board 
     if limited
       then do [Only n] <- query conn queryLen (id, board)
               if n > 5
@@ -116,7 +118,7 @@ getThread conn limited board id = do
 -- Get all the threads from a board
 getThreads :: Connection -> Int -> IO [Thread]
 getThreads conn board = do
-    ops     <- query conn queryOps (Only board)
+    ops     <- query conn queryOps (Only board) 
     threads <- mapM (getThread conn True board . (\(Only id) -> id)) ops
     return threads
   where queryOps = "SELECT post_id FROM posts WHERE post_reply IS NULL \

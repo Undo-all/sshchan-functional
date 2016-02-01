@@ -18,15 +18,17 @@ import Control.Monad.Trans
 import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Brick.Widgets.Dialog
+import Data.Vector (Vector)
 import Database.SQLite.Simple
 import Graphics.Vty.Attributes
 import qualified Data.Text as T
+import qualified Data.Vector as V
 import Text.Read (readMaybe, readEither)
 import System.Process (shell, readCreateProcess)
 
 -- This stores what page you're on.
 data Page = Homepage (Dialog String)
-          | ViewBoard Int [Thread] Int
+          | ViewBoard Int (Vector Thread) Int
           | ViewThread Int Int Thread Int
           | MakePost Int PostUI
           | Banned Int (Maybe String) String (Maybe UTCTime)
@@ -183,7 +185,7 @@ drawUI (AppState _ ip _ (MakeReport board id ed)) =
 -- Generate a ViewBoard page.
 viewBoard :: Connection -> Int -> IO Page
 viewBoard conn board = do
-    xs <- getThreads conn board
+    xs <- V.fromList <$> getThreads conn board
     return $ ViewBoard board xs 0
 
 -- Generate a ViewThread page.
@@ -222,7 +224,7 @@ appEvent st@(AppState conn ip cfg (ViewBoard board xs selected)) ev =
         continue $ AppState conn ip cfg 
                        (ViewBoard board xs (selectPrev selected len))
       EvKey KEnter []           -> do
-        let id = postID . threadOP $ xs !! selected
+        let id = postID . threadOP $ xs V.! selected
         page <- liftIO $ viewThread conn board id
         continue (AppState conn ip cfg page)
       EvKey (KFun 5) []         -> do
@@ -256,7 +258,7 @@ appEvent st@(AppState conn ip cfg vt@(ViewThread board id thread selected)) ev =
       EvKey (KChar 'r') [MCtrl] -> do
         let reportID = if selected == 0
                          then id
-                         else postID (threadReplies thread !! (selected-1))
+                         else postID (threadReplies thread V.! (selected-1))
             ed       = editor "report" (str . unlines) Nothing ""
         continue $ AppState conn ip cfg
                        (MakeReport board reportID ed)
@@ -266,7 +268,7 @@ appEvent st@(AppState conn ip cfg vt@(ViewThread board id thread selected)) ev =
       EvKey KEnter []           -> do
         let reply = if selected == 0
                       then Nothing
-                      else Just $ postID (threadReplies thread !! (selected-1))
+                      else Just $ postID (threadReplies thread V.! (selected-1))
             page  = if threadLocked thread == True
                       then vt
                       else MakePost board $ newPostUI (Just id) reply
@@ -330,7 +332,7 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
                        _ -> do
                          liftIO $ makePost conn ip subject name (T.stripEnd content)
                                   board reply
-                         xs' <- liftIO $ getThreads conn board 
+                         xs' <- liftIO $ V.fromList <$> getThreads conn board 
                          continue (AppState conn ip cfg (ViewBoard board xs' 0))
         queryRemoveBan  = "DELETE * FROM bans WHERE ban_ip = ?"
 

@@ -5,10 +5,12 @@ import Brick
 import Types
 import Data.Time
 import Graphics.Vty
+import Data.Vector (Vector)
 import Brick.Widgets.Border
 import Graphics.Vty.Attributes
 import qualified Data.Text as T
 import Brick.Widgets.Border.Style
+import qualified Data.Vector as V
 
 -- Renders a post.
 renderPost :: Bool -> Bool -> Bool -> Post -> Widget
@@ -33,13 +35,13 @@ renderPost selected stickied locked (Post subject name date id content) =
 renderThread :: Int -> Thread -> Widget
 renderThread selected (Thread op xs omitted stickied locked)
     | selected == (-1) = renderPost False stickied locked op <=> omitMsg <=>
-                         padLeft (Pad 2) (vBox . map (renderPost False False False) $ xs)
+                         padLeft (Pad 2) (vBox . V.toList . V.map (renderPost False False False) $ xs)
     | selected == 0    = visible $ renderPost True stickied locked op <=> omitMsg <=>
-                         padLeft (Pad 2) (vBox . map (renderPost False False False) $ xs)
+                         padLeft (Pad 2) (vBox . V.toList . V.map (renderPost False False False) $ xs)
     | otherwise        = renderPost False stickied locked op <=> omitMsg <=>
                          padLeft (Pad 2) 
-                             (vBox . map renderSelected . indexes $ xs)
-  where indexes xs = zip xs [0..length xs - 1]
+                             (vBox . V.toList . V.map renderSelected . indexes $ xs)
+  where indexes xs = V.zip xs (V.fromList [0..length xs - 1])
         omitMsg    =
             case omitted of
               Nothing -> emptyWidget
@@ -50,9 +52,9 @@ renderThread selected (Thread op xs omitted stickied locked)
             | otherwise             = renderPost False False False post
 
 -- Render several threads (these comments are helpful, aren't they?)
-renderThreads :: Int -> [Thread] -> Widget
-renderThreads selected = vBox . map renderSelected . indexes
-  where indexes xs = zip xs [0..length xs - 1]
+renderThreads :: Int -> Vector Thread -> Widget
+renderThreads selected = vBox . V.toList . V.map renderSelected . indexes
+  where indexes xs = V.zip xs (V.fromList [0..length xs - 1])
         renderSelected (thread, index)
             | index == selected = renderThread 0 thread
             | otherwise         = renderThread (-1) thread

@@ -4,6 +4,7 @@ import Format
 import Data.Time
 import Data.Text.Markup
 import Data.Text (Text)
+import Data.Vector (Vector)
 import Database.SQLite.Simple.FromRow
 import Graphics.Vty.Attributes (Attr)
 
@@ -31,7 +32,7 @@ instance FromRow Post where
 -- Threads hold threads!
 data Thread = Thread 
             { threadOP       :: Post 
-            , threadReplies  :: [Post]
+            , threadReplies  :: Vector Post
             , threadOmitted  :: Maybe Int
             , threadStickied :: Bool
             , threadLocked   :: Bool
