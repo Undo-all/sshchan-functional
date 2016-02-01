@@ -40,22 +40,20 @@ renderThread selected (Thread op xs omitted stickied locked)
                          padLeft (Pad 2) (vBox . V.toList . V.map (renderPost False False False) $ xs)
     | otherwise        = renderPost False stickied locked op <=> omitMsg <=>
                          padLeft (Pad 2) 
-                             (vBox . V.toList . V.map renderSelected . indexes $ xs)
-  where indexes xs = V.zip xs (V.fromList [0..length xs - 1])
-        omitMsg    =
+                             (vBox . V.toList . V.imap renderSelected $ xs)
+  where omitMsg =
             case omitted of
               Nothing -> emptyWidget
               Just n  -> padLeft (Pad 2) . str $ 
                              show n ++ " posts omitted. Hit enter to view."
-        renderSelected (post, index)
+        renderSelected index post
             | index + 1 == selected = visible (renderPost True False False post)
             | otherwise             = renderPost False False False post
 
 -- Render several threads (these comments are helpful, aren't they?)
 renderThreads :: Int -> Vector Thread -> Widget
-renderThreads selected = vBox . V.toList . V.map renderSelected . indexes
-  where indexes xs = V.zip xs (V.fromList [0..length xs - 1])
-        renderSelected (thread, index)
+renderThreads selected = vBox . V.toList . V.imap renderSelected 
+  where renderSelected index thread
             | index == selected = renderThread 0 thread
             | otherwise         = renderThread (-1) thread
 
