@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Main (main) where
 
+import Page
 import Util
 import Wrap
 import Brick
 import Types
+import Config
 import Format
 import Render
 import Data.List
@@ -26,17 +28,6 @@ import qualified Data.Vector as V
 import Text.Read (readMaybe, readEither)
 import System.Process (shell, readCreateProcess)
 
--- This stores what page you're on.
-data Page = Homepage (Dialog String)
-          | ViewBoard Int (Vector Thread) Int
-          | ViewThread Int Int Thread Int
-          | MakePost Int PostUI
-          | Banned Int (Maybe String) String (Maybe UTCTime)
-          | MakeReport Int Int Editor
-
--- In any selection in a series, the index needs to loop around when it is
--- greater than the length of the series. These are helper functions to do
--- that.
 selectNext :: Int -> Int -> Int
 selectNext x 0 = 0
 selectNext x n = (x+1) `mod` n
@@ -45,83 +36,10 @@ selectPrev :: Int -> Int -> Int
 selectPrev x 0 = 0
 selectPrev x n = (x-1) `mod` n
 
--- The posting UI, in all it's fanciness.
--- I use an integer to store what editor is currently selected because
--- I don't wanna learn how to use lenses (they're scary).
-data PostUI = PostUI Int Editor Editor Editor Editor
-
--- Create a PostUI. If passed (Just id), the default text of the "Reply to"
--- editor is that id. If passed (Just reply), the default text of the
--- content editor is ">>reply".
-newPostUI :: Maybe Int -> Maybe Int -> PostUI
-newPostUI id reply = PostUI 0 ed1 ed2 ed3 ed4
-  where ed1       = editor "subject" render (Just 1) ""
-        ed2       = editor "name" render (Just 1) ""
-        ed3       = editor "reply" render (Just 1) (maybe "" show id)
-        ed4       = editor "content" render Nothing (maybe "" mkReply reply)
-        render    = str . unlines
-        mkReply n = ">>" ++ show n ++ "\n"
-
--- Get the current (focused) editor of a PostUI.
-currentEditor :: PostUI -> Editor
-currentEditor (PostUI focus ed1 ed2 ed3 ed4) =
-    case focus of
-      0 -> ed1
-      1 -> ed2
-      2 -> ed3
-      3 -> ed4
-
--- Update the current editor of a PostUI.
-updateEditor :: PostUI -> Editor -> PostUI
-updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
-    case focus of
-      0 -> PostUI focus ed ed2 ed3 ed4
-      1 -> PostUI focus ed1 ed ed3 ed4
-      2 -> PostUI focus ed1 ed2 ed ed4
-      3 -> PostUI focus ed1 ed2 ed3 ed
-
--- Render a PostUI.
-renderPostUI :: PostUI -> Widget
-renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
-    vBox [ info, fields, content ]
-  where save    = padRight Max . padBottom (Pad 1) $ str "Ctrl+S to save"
-        cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
-        info    = hLimit 100 (save <+> cancel)
-        editors = [ str "Subject: ", renderEditor ed1
-                  , padLeft (Pad 1) $ str "Name: ", renderEditor ed2
-                  , padLeft (Pad 1) $ str "Reply to: ", renderEditor ed3
-                  ] 
-        fields  = vLimit 25 . hLimit 100 . padBottom (Pad 1) . hBox $ editors
-        content = vLimit 25 . hLimit 100 $ renderEditor ed4
-
--- The configuration of the chan.
-data Config = Config
-            { chanName :: String
-            , chanUser :: String
-            , chanHomepageMsg :: String
-            , chanDialogAttr :: Attr
-            , chanButtonAttr :: Attr
-            , chanButtonSelectedAttr :: Attr
-            , chanEditAttr :: Attr
-            } deriving (Eq, Show, Read)
-
--- Reads a configuration from a string.
-readConfig :: String -> Either String Config
-readConfig xs =
-    readEither ("Config {" ++ xs ++ "}") :: Either String Config
-
 -- Our application state. The only reason this isn't just Page is because
 -- you have to keep track of the sqlite database connection and the
 -- configuration.
 data AppState = AppState Connection IP Config Page
-
--- Construct the homepage dialog.
-homepageDialog :: Connection -> Config -> IO (Dialog String)
-homepageDialog conn Config{ chanName = name, chanHomepageMsg = msg } = do
-    boards <- liftIO $ query_ conn "SELECT board_name FROM boards"
-    let xs      = map (\(Only board) -> T.unpack board) boards
-        choices = zip xs xs 
-    return $ dialog "boardselect" (Just name) (Just (0, choices)) 50
 
 -- Takes a list of instructions, and makes a widget that equally spaces
 -- them, meant to be placed at the top or bottom of the screen.
@@ -390,7 +308,7 @@ getIP :: String -> IO String
 getIP usr = init <$> readCreateProcess (shell command) ""
   where command =
             "pinky | grep " ++ usr ++ 
-            " | sort -rk 5n | awk '{ print $8 }' | head -1"
+            " | sort -rk 5n | head -1 | awk '{ print $8 }'"
 
 main :: IO ()
 main = do
