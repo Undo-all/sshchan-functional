@@ -8,6 +8,7 @@ module Util
 , getReplies
 , getThread
 , getThreads
+, isThreadLocked
 ) where
 
 import Types
