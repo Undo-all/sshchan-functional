@@ -51,10 +51,9 @@ renderThread selected (Thread op xs omitted stickied locked)
 
 -- Render several threads (these comments are helpful, aren't they?)
 renderThreads :: Int -> [Thread] -> Widget
-renderThreads selected =
-    vBox . map render . indexes
+renderThreads selected = vBox . map renderSelected . indexes
   where indexes xs = zip xs [0..length xs - 1]
-        render (thread, index)
+        renderSelected (thread, index)
             | index == selected = renderThread 0 thread
             | otherwise         = renderThread (-1) thread
 

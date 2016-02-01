@@ -49,12 +49,4 @@ markupWrapping m =
   where imgStr (s, aSrc) = do
           a <- getAttr aSrc
           return $ if T.null s then text' a " " else text' a s
-          {-
-          case s of         
-                 []       -> text' a " "
-                 [one]    -> text' a one
-                 multiple ->
-                     let lineImgs     = map lineImg multiple
-                         lineImg lStr = if T.null lStr then text' a " " else text' a lStr
-                     in return $ vertCat lineImgs
--}
+

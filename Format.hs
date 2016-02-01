@@ -44,6 +44,7 @@ parse tmp fmt res ('_':xs)
       parse [] (filter (not . (==Underline)) fmt) (append tmp fmt res) xs
     | otherwise       = parse [] (Underline:fmt) (append tmp fmt res) xs
 
+-- Parsing can be ugly.
 parse tmp fmt res ('[':xs) =
     case findIndex (==';') xs of
       Just x  -> case findIndex (==':') xs of

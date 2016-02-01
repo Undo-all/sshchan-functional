@@ -2,6 +2,7 @@
 
 module Main where
 
+import Util
 import Data.Char
 import Data.Time
 import Data.List
@@ -98,10 +99,11 @@ commandDeletePosts :: Command
 commandDeletePosts = 
     Command
       "delete every post passed as an argument"
-      (1, Nothing)
+      (2, Nothing)
       delete
-  where delete conn xs = let nums = catMaybes . map readInt $ xs
-                         in mapM_ (deletePost conn) nums
+  where delete conn (b:xs) = do let nums = catMaybes . map readInt $ xs
+                                bId <- getBoardID b
+                             in mapM_ (deletePost conn) nums
 
 commandDeleteByIP :: Command
 commandDeleteByIP =

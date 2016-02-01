@@ -1,5 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Util where
+module Util
+( genTripcode
+, makePost
+, makeReport
+, getBoardName
+, getBoardID
+, getReplies
+, getThread
+, getThreads
+) where
 
 import Types
 import Format
@@ -10,22 +19,33 @@ import System.Unix.Crypt
 import Database.SQLite.Simple
 import qualified Data.Text as T
 
--- Generate a tripcode.
--- Code adapted from http://cairnarvon.rotahall.org/2009/01/09/ofioc/
-genTripcode :: Text -> IO (Maybe Text)
-genTripcode xs 
-    | isJust (T.find (=='#') xs) =
-      let (name, pass) = (\(x,y) -> (x, T.tail y)) . T.breakOn "#" $ xs
-      in do trip <- T.pack . last10 <$> tripcode pass
-            return . Just . (T.append (T.concat [name, " !"])) $ trip
-    | otherwise              = return (Just xs)
-  where tripcode pass = crypt (T.unpack pass) (salt . T.unpack $ pass)
-        last10 xs     = drop (length xs - 10) xs
-        salt t        = map f . take 2 . tail $ t ++ "H.."
-        f c | c `notElem` ['.'..'z'] = '.'
+-- Tripcode generation code adapted 
+-- from http://cairnarvon.rotahall.org/2009/01/09/ofioc/
+
+-- Generate salt from password.
+salt :: String -> String
+salt = map f . take 2 . tail . (++"H..")
+  where f c | c `notElem` ['.'..'z'] = '.'
             | c `elem` [':'..'@']    = chr $ ord c + 7
             | c `elem` ['['..'`']    = chr $ ord c + 6
             | otherwise              = c
+
+-- The actual tripcode generation.
+tripcode :: Text -> IO Text
+tripcode xs = let last10 xs = drop (length xs - 10) xs
+                  pass      = T.unpack xs
+              in T.pack . last10 <$> crypt pass (salt pass)
+
+-- Takes a name, and returns a tripcode, but only if the name asks for
+-- a tripcode specifically (name#password). Otherwise, it just returns the
+-- name.
+genTripcode :: Text -> IO (Maybe Text)
+genTripcode xs 
+    | isJust (T.find (=='#') xs) = do
+        let (name, pass) = fmap T.tail . T.breakOn "#" $ xs
+        trip <- tripcode pass
+        return $ Just (T.concat [name, " !",  trip])
+    | otherwise                  = return (Just xs)
 
 -- Make a post (ofc)
 makePost :: Connection -> IP -> Maybe Text -> Maybe Text -> Text -> Int -> Maybe Int -> IO ()
@@ -35,13 +55,15 @@ makePost conn ip subject name content board reply = do
     case reply of
       Just n  -> execute conn bump (Only n)
       Nothing -> return ()
-  where post = "INSERT INTO posts VALUES(NULL,?,date('now'),datetime('now'),0,0,?,?,?,?,?)"
-        bump = "UPDATE posts SET post_last_bumped = datetime('now') WHERE post_id = ?"
+  where post = "INSERT INTO posts \
+               \VALUES(NULL,?,date('now'),datetime('now'),0,0,?,?,?,?,?)"
+        bump = "UPDATE posts SET \
+               \post_last_bumped = datetime('now') WHERE post_id = ?"
 
--- Make a report
+-- Make a report.
 makeReport :: Connection -> Int -> Int -> String -> IP -> IO ()
 makeReport conn id board reason ip = do
-    execute conn (Query report) (id, board, reason, ip)
+    execute conn report (id, board, reason, ip)
   where report = "INSERT INTO reports VALUES(NULL, ?, ?, ?, datetime('now'), ?)"
 
 -- Gets the name of a board from it's ID.
@@ -75,8 +97,8 @@ getReplies conn limited id board = do
 -- Get a thread from it's ID.
 getThread :: Connection -> Bool -> Int -> Int -> IO Thread
 getThread conn limited board id = do
-    [(id, date, by, subj, content, stick, lock)] <- query conn queryOp (id, board)
-    let post = Post subj by date id (parseFormat content)
+    [(id, date, by, subj, cont, stick, lock)] <- query conn queryOp (id, board)
+    let post = Post subj by date id (parseFormat cont)
     replies <- getReplies conn limited id board 
     if limited
       then do [Only n] <- query conn queryLen (id, board)
@@ -90,6 +112,7 @@ getThread conn limited board id = do
         queryLen = "SELECT count(*) FROM posts WHERE post_reply = ? \
                    \AND post_board = ?"
 
+-- Get all the threads from a board
 getThreads :: Connection -> Int -> IO [Thread]
 getThreads conn board = do
     ops     <- query conn queryOps (Only board)
@@ -99,6 +122,7 @@ getThreads conn board = do
                    \AND post_board = ? ORDER BY post_stickied, \
                    \post_last_bumped DESC"
 
+-- Tests if a thread is locked.
 isThreadLocked :: Connection -> Int -> Int -> IO Bool
 isThreadLocked conn board id = do
     [Only b] <- query conn queryLocked (id, board)

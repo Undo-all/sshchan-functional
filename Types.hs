@@ -7,6 +7,7 @@ import Data.Text (Text)
 import Database.SQLite.Simple.FromRow
 import Graphics.Vty.Attributes (Attr)
 
+-- Represents an IP address (or hostname).
 type IP = String
 
 -- Posts hold posts!
