@@ -48,7 +48,9 @@ selectPrev x n = (x-1) `mod` n
 -- I don't wanna learn how to use lenses (they're scary).
 data PostUI = PostUI Int Editor Editor Editor Editor
 
--- Create a PostUI with optional replies.
+-- Create a PostUI. If passed (Just id), the default text of the "Reply to"
+-- editor is that id. If passed (Just reply), the default text of the
+-- content editor is ">>reply".
 newPostUI :: Maybe Int -> Maybe Int -> PostUI
 newPostUI id reply = PostUI 0 ed1 ed2 ed3 ed4
   where ed1       = editor "subject" render (Just 1) ""
@@ -119,40 +121,43 @@ homepageDialog conn Config{ chanName = name, chanHomepageMsg = msg } = do
         choices = zip xs xs 
     return $ dialog "boardselect" (Just name) (Just (0, choices)) 50
 
+-- Takes a list of instructions, and makes a widget that equally spaces
+-- them, meant to be placed at the top or bottom of the screen.
+makeInstructions :: [String] -> Widget
+makeInstructions xs = hBox . pad . map str
+  where pad xs = intersperse space $ space : xs ++ space
+        space  = vLimit 1 $ fill ' '
+
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
 drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage d)) =
-    [(renderDialog d . hCenter . padAll 1 $ str msg) <=> hCenter (str "Tab to select board")]
+    [ (renderDialog d . hCenter . padAll 1 $ str msg) <=> 
+      hCenter (str "Tab to select board")
+    ]
 
 drawUI (AppState _ _ _ (ViewBoard _ xs selected)) =
     [ hCenter instructions <=> 
       viewport "threads" Vertical (renderThreads selected xs) 
     ]
-  where instructions = hBox . intersperse space $
-                           [ space
-                           , str "Ctrl+P to make a post"
-                           , str "Ctrl+Z to go back"
-                           , str "F5 to refresh page"
-                           , str "Esc to disconnect"
-                           , space
+  where instructions = makeInstructions 
+                           [ "Ctrl+P to make a post"
+                           , "Ctrl+Z to go back"
+                           , "F5 to refresh page"
+                           , "Esc to disconnect"
                            ]
-        space = vLimit 1 $ fill ' '
 
 drawUI (AppState _ _ _ (ViewThread _ id thread selected)) =
     [ hCenter instructions <=>
       viewport "thread" Vertical (renderThread selected thread) <=>
       (hCenter . str $ "Viewing thread No. " ++ show id)
     ]
-  where instructions = hBox . intersperse space $
-                           [ space
-                           , str "Enter to reply"
-                           , str "Ctrl+Z to go back"
-                           , str "F5 to refresh page"
-                           , str "Ctrl+R to report post"
-                           , str "ESC to disconnect"
-                           , space
+  where instructions = makeInstructions 
+                           [ "Enter to reply"
+                           , "Ctrl+Z to go back"
+                           , "F5 to refresh page"
+                           , "Ctrl+R to report post"
+                           , "ESC to disconnect"
                            ]
-        space = vLimit 1 $ fill ' '
 
 drawUI (AppState _ _ _ (MakePost _ ui)) = [center $ renderPostUI ui]
 
@@ -382,7 +387,8 @@ makeApp cfg =
 getIP :: String -> IO String
 getIP usr = init <$> readCreateProcess (shell command) ""
   where command =
-            "pinky | grep " ++ usr ++ " | sort -rk 5n | awk '{ print $8 }' | head -1"
+            "pinky | grep " ++ usr ++ 
+            " | sort -rk 5n | awk '{ print $8 }' | head -1"
 
 main :: IO ()
 main = do
@@ -393,6 +399,7 @@ main = do
           conn <- open "chan.db"
           ip   <- getIP (chanUser cfg)
           d    <- homepageDialog conn cfg
-          ip `seq` defaultMain (makeApp cfg) (AppState conn ip cfg (Homepage d))
+          ip `seq` defaultMain (makeApp cfg) 
+                               (AppState conn ip cfg (Homepage d))
           return ()
 
