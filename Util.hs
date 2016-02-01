@@ -116,11 +116,10 @@ getThread conn limited board id = do
                    \AND post_board = ?"
 
 -- Get all the threads from a board
-getThreads :: Connection -> Int -> IO [Thread]
+getThreads :: Connection -> Int -> IO (Vector Thread)
 getThreads conn board = do
-    ops     <- query conn queryOps (Only board) 
-    threads <- mapM (getThread conn True board . (\(Only id) -> id)) ops
-    return threads
+    ops <- V.fromList <$> query conn queryOps (Only board) 
+    V.mapM (getThread conn True board . (\(Only id) -> id)) ops
   where queryOps = "SELECT post_id FROM posts WHERE post_reply IS NULL \
                    \AND post_board = ? ORDER BY post_stickied, \
                    \post_last_bumped DESC"

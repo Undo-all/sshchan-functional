@@ -185,7 +185,7 @@ drawUI (AppState _ ip _ (MakeReport board id ed)) =
 -- Generate a ViewBoard page.
 viewBoard :: Connection -> Int -> IO Page
 viewBoard conn board = do
-    xs <- V.fromList <$> getThreads conn board
+    xs <- getThreads conn board
     return $ ViewBoard board xs 0
 
 -- Generate a ViewThread page.
@@ -332,7 +332,7 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
                        _ -> do
                          liftIO $ makePost conn ip subject name (T.stripEnd content)
                                   board reply
-                         xs' <- liftIO $ V.fromList <$> getThreads conn board 
+                         xs' <- liftIO $ getThreads conn board 
                          continue (AppState conn ip cfg (ViewBoard board xs' 0))
         queryRemoveBan  = "DELETE * FROM bans WHERE ban_ip = ?"
 
