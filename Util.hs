@@ -65,7 +65,7 @@ makePost conn ip subject name content board reply = do
 
 -- Make a report.
 makeReport :: Connection -> Int -> Int -> String -> IP -> IO ()
-makeReport conn id board reason ip = do
+makeReport conn id board reason ip = 
     execute conn report (id, board, reason, ip)
   where report = "INSERT INTO reports VALUES(NULL, ?, ?, ?, datetime('now'), ?)"
 

@@ -36,24 +36,24 @@ parse tmp fmt res ('\\':c:xs) = parse (c:tmp) fmt res xs
 
 parse tmp fmt res ('*':xs)
     | Bold `elem` fmt = 
-      parse [] (filter (not . (==Bold)) fmt) (append tmp fmt res) xs
+      parse [] (filter (/=Bold) fmt) (append tmp fmt res) xs
     | otherwise       = parse [] (Bold:fmt) (append tmp fmt res) xs
 
 parse tmp fmt res ('_':xs)
     | Underline `elem` fmt = 
-      parse [] (filter (not . (==Underline)) fmt) (append tmp fmt res) xs
+      parse [] (filter (/=Underline) fmt) (append tmp fmt res) xs
     | otherwise       = parse [] (Underline:fmt) (append tmp fmt res) xs
 
 -- Parsing can be ugly.
 parse tmp fmt res ('[':xs) =
-    case findIndex (==';') xs of
-      Just x  -> case findIndex (==':') xs of
+    case elemIndex ';' xs of
+      Just x  -> case elemIndex ':' xs of
                    Just y  -> case (,) <$> parseInt (take x xs) <*> parseInt (drop (x+1) . take y $ xs) of
                                 Nothing     -> parse ('[':tmp) fmt res xs
                                 Just (a, b) ->
                                   parse "" (Fg (clamp 0 a 15):Bg (clamp 0 b 15):fmt) (append tmp fmt res) (drop (y+1) xs)
                    Nothing -> parse ('[':tmp) fmt res xs
-      Nothing -> case findIndex (==':') xs of
+      Nothing -> case elemIndex ':' xs of
                    Just x  -> case parseInt (take x xs) of
                                 Nothing -> parse ('[':tmp) fmt res xs
                                 Just a  ->

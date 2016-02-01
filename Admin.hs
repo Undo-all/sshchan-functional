@@ -22,7 +22,7 @@ makeBoard conn name desc = execute conn queryBoard (name, desc)
   where queryBoard = "INSERT INTO boards VALUES(NULL,?,?)"
 
 deleteBoard :: Connection -> Text -> IO ()
-deleteBoard conn name = do
+deleteBoard conn name =
     execute conn queryDelete (Only name)
   where queryDelete = "DELETE FROM boards WHERE board_name = ?"
 
@@ -30,7 +30,7 @@ deletePost :: Connection -> Int -> IO ()
 deletePost conn id = execute conn queryDelete (Only id)
   where queryDelete = "DELETE FROM posts WHERE post_id = ?"
 
-banIP :: Connection -> String -> Maybe String -> String -> (Maybe UTCTime) -> IO ()
+banIP :: Connection -> String -> Maybe String -> String -> Maybe UTCTime -> IO ()
 banIP conn ip board reason time =
     execute conn (Query ban) (ip, board, reason, time)
   where ban = "INSERT INTO bans VALUES(?,?,?,?)"
@@ -101,8 +101,7 @@ commandDeletePosts =
       "delete every post passed as an argument"
       (2, Nothing)
       delete
-  where delete conn (b:xs) = do let nums = catMaybes . map readInt $ xs
-                                bId <- getBoardID b
+  where delete conn (b:xs) = let nums = mapMaybe readInt xs
                              in mapM_ (deletePost conn) nums
 
 commandDeleteByIP :: Command
@@ -199,7 +198,7 @@ commandDismissReports =
       "dismiss every report passed as an argument (by ID)"
       (1, Nothing)
       dismissReports
-  where dismissReports conn xs = let nums = catMaybes . map readInt $ xs
+  where dismissReports conn xs = let nums = mapMaybe readInt xs
                                  in mapM_ (dismiss conn) nums
         dismiss conn id        =
             execute conn "DELETE FROM reports WHERE report_id = ?" (Only id)
@@ -222,7 +221,7 @@ commandStickyPost =
                  Just id -> do
                    [Only bId] <- query conn "SELECT board_id FROM boards WHERE board_name = ?" (Only b)
                    execute conn stickyQuery (id, bId :: Int)
-                 Nothing -> putStrLn $ "error: not an integer"
+                 Nothing -> putStrLn "error: not an integer"
         stickyQuery        =
           "UPDATE posts SET post_stickied = 1 WHERE post_id = ? AND post_board = ?"
 
@@ -237,7 +236,7 @@ commandLockPost =
                  Just id -> do
                    [Only bId] <- query conn "SELECT board_id FROM boards WHERE board_name = ?" (Only b)
                    execute conn stickyQuery (id, bId :: Int)
-                 Nothing -> putStrLn $ "error: not an integer"
+                 Nothing -> putStrLn "error: not an integer"
         stickyQuery      =
           "UPDATE posts SET post_locked = 1 WHERE post_id = ? AND post_board = ?"
 

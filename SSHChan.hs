@@ -1,4 +1,4 @@
-{-# languAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
@@ -84,7 +84,7 @@ updateEditor (PostUI focus ed1 ed2 ed3 ed4) ed =
 renderPostUI :: PostUI -> Widget
 renderPostUI (PostUI _ ed1 ed2 ed3 ed4) =
     vBox [ info, fields, content ]
-  where save    = padRight (Max) . padBottom (Pad 1) $ str "Ctrl+S to save"
+  where save    = padRight Max . padBottom (Pad 1) $ str "Ctrl+S to save"
         cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
         info    = hLimit 100 (save <+> cancel)
         editors = [ str "Subject: ", renderEditor ed1
@@ -176,8 +176,8 @@ drawUI (AppState _ ip _ (Banned _ from reason time)) =
 
 drawUI (AppState _ ip _ (MakeReport board id ed)) = 
     [ hCenter (hLimit 100 $ save <+> cancel) <=>
-      (center $ hCenter (str $ "Reporting post " ++ show id ++ ". Reason:") <=>
-                hCenter (vLimit 25 . hLimit 100 $ renderEditor ed))
+      center (hCenter (str $ "Reporting post " ++ show id ++ ". Reason:") <=>
+              hCenter (vLimit 25 . hLimit 100 $ renderEditor ed))
     ]
   where save    = padRight Max . padBottom (Pad 1) $ str "Ctrl+S to save"
         cancel  = padBottom (Pad 1) $ str "Ctrl+Z to go back"
@@ -201,7 +201,7 @@ appEvent st@(AppState conn ip cfg (Homepage d)) ev =
     case ev of
       EvKey KEsc []   -> halt st
       EvKey KEnter [] ->
-        case (dialogSelection d) of
+        case dialogSelection d of
           Nothing   -> continue st
           Just name -> do
               board <- liftIO $ getBoardID conn name
@@ -269,7 +269,7 @@ appEvent st@(AppState conn ip cfg vt@(ViewThread board id thread selected)) ev =
         let reply = if selected == 0
                       then Nothing
                       else Just $ postID (threadReplies thread V.! (selected-1))
-            page  = if threadLocked thread == True
+            page  = if threadLocked thread
                       then vt
                       else MakePost board $ newPostUI (Just id) reply
         continue $ AppState conn ip cfg page
@@ -287,7 +287,7 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
       EvKey (KChar 's') [MCtrl] -> do
         banned <- liftIO $ query_ conn "SELECT * FROM bans"
         case find (\(n, _, _, _) -> n == ip) banned of
-          Just (_, from, reason, time) -> do
+          Just (_, from, reason, time) -> 
             case from of
               Nothing   -> ban Nothing reason time 
               Just from -> if from == board then ban (Just board) reason time
@@ -305,8 +305,8 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
         listToMaybe' []      = Nothing
         listToMaybe' xs      = Just xs
         ban from reason time = do
-            currTime <- liftIO $ getCurrentTime
-            if isJust time && currTime > (fromMaybe undefined time)
+            currTime <- liftIO getCurrentTime
+            if isJust time && currTime > fromMaybe undefined time
               then do liftIO (execute conn queryRemoveBan (Only . show $ ip))
                       post
               else case from of

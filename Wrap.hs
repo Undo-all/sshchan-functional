@@ -33,7 +33,7 @@ wrapMarkup :: (Eq a, GetAttr a) => Int -> Int -> [[(Text, a)]] -> [(Text, a)] ->
 wrapMarkup i n tmp []     = reverse (map reverse tmp)
 wrapMarkup i n tmp (x:xs) =
     let (r, w) = wrap i n $ T.unpack (fst x)
-    in if not ('\n' `elem` w)
+    in if '\n' `notElem` w
          then wrapMarkup r n ((T.pack w, snd x) `appendHead` tmp) xs
          else wrapMarkup r n (reverse (map (\a -> [(T.pack a, snd x)]) (lines w)) ++ tmp) xs
   where appendHead x (xs:xss) = (x:xs):xss
