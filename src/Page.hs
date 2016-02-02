@@ -6,6 +6,7 @@ import Types
 import Brick
 import Config
 import Data.Time
+import System.Process
 import Brick.Widgets.Edit
 import Control.Monad.Trans
 import Data.Vector (Vector)
@@ -14,20 +15,23 @@ import Database.SQLite.Simple
 import qualified Data.Text as T
 
 -- This stores what page you're on.
-data Page = Homepage (Dialog String)
-          | ViewBoard Int (Vector Thread) Int
+data Page = Homepage String (Dialog String)
+          | ViewBoard Int String String (Vector Thread) Int
           | ViewThread Int Int Thread Int
           | MakePost Int PostUI
           | Banned Int (Maybe String) String (Maybe UTCTime)
           | MakeReport Int Int Editor
 
--- Construct the homepage dialog.
-homepageDialog :: Connection -> Config -> IO (Dialog String)
-homepageDialog conn Config{ chanName = name, chanHomepageMsg = msg } = do
+homepage :: Connection -> Config -> IO Page
+homepage conn Config{ chanName = name, chanHomepageMsg = msg } = do
     boards <- liftIO $ query_ conn "SELECT board_name FROM boards"
     let xs      = map (\(Only board) -> T.unpack board) boards
-        choices = zip xs xs 
-    return $ dialog "boardselect" (Just name) (Just (0, choices)) 50
+        choices = zip xs xs
+        diag    = dialog "boardselect" Nothing (Just (0, choices)) 50
+    -- Temporary until I can find a better solution for printing ascii art text
+    -- in Haskell.
+    banner <- readProcess "figlet" ["-w 255", name] []
+    return $ Homepage banner diag 
 
 -- The posting UI, in all it's fanciness.
 -- I use an integer to store what editor is currently selected because

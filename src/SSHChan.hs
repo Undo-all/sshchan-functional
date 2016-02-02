@@ -50,14 +50,17 @@ makeInstructions = hBox . pad . map str
 
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
-drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage d)) =
-    [ (renderDialog d . hCenter . padAll 1 $ str msg) <=> 
-      hCenter (str "Tab to select board")
+drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage b d)) =
+    [ hCenter (padRight (Pad 1) (str b)) <=>
+      vLimit 3 (renderDialog d emptyWidget) <=>
+      hCenter (str "Tab to select board") <=>
+      hCenter (vBox $ map (hCenter . str) (lines msg))
     ]
 
-drawUI (AppState _ _ _ (ViewBoard _ xs selected)) =
+drawUI (AppState _ _ _ (ViewBoard _ name desc xs selected)) =
     [ hCenter instructions <=> 
-      viewport "threads" Vertical (renderThreads selected xs) 
+      viewport "threads" Vertical (renderThreads selected xs) <=>
+      hCenter (str ("/" ++ name ++ "/ - " ++ desc))
     ]
   where instructions = makeInstructions 
                            [ "Ctrl+P to make a post"
@@ -104,7 +107,10 @@ drawUI (AppState _ ip _ (MakeReport board id ed)) =
 viewBoard :: Connection -> Int -> IO Page
 viewBoard conn board = do
     xs <- getThreads conn board
-    return $ ViewBoard board xs 0
+    [(name, desc)] <- query conn queryInfo (Only board)
+    return $ ViewBoard board name desc xs 0
+  where queryInfo = "SELECT board_name, board_description \
+                    \FROM boards WHERE board_id = ?"
 
 -- Generate a ViewThread page.
 viewThread :: Connection -> Int -> Int -> IO Page
@@ -115,7 +121,7 @@ viewThread conn board id = do
 -- This handles events, and boy oh boy, does it just do it in the least
 -- elegant looking way possible.
 appEvent :: AppState -> Event -> EventM (Next AppState)
-appEvent st@(AppState conn ip cfg (Homepage d)) ev =
+appEvent st@(AppState conn ip cfg (Homepage b d)) ev =
     case ev of
       EvKey KEsc []   -> halt st
       EvKey KEnter [] ->
@@ -126,21 +132,21 @@ appEvent st@(AppState conn ip cfg (Homepage d)) ev =
               page  <- liftIO $ viewBoard conn board
               continue (AppState conn ip cfg page)
       _               -> do d' <- handleEvent ev d
-                            continue (AppState conn ip cfg (Homepage d'))
+                            continue (AppState conn ip cfg (Homepage b d'))
 
-appEvent st@(AppState conn ip cfg (ViewBoard board xs selected)) ev =
+appEvent st@(AppState conn ip cfg (ViewBoard board n d xs selected)) ev =
     case ev of
       EvKey KEsc []             -> halt st
       EvKey KHome []            ->
-        continue (AppState conn ip cfg (ViewBoard board xs 0))
+        continue (AppState conn ip cfg (ViewBoard board n d xs 0))
       EvKey KEnd []             ->
-        continue (AppState conn ip cfg (ViewBoard board xs len))
+        continue (AppState conn ip cfg (ViewBoard board n d xs len))
       EvKey KDown []            -> 
         continue $ AppState conn ip cfg
-                       (ViewBoard board xs (selectNext selected len))
+                       (ViewBoard board n d xs (selectNext selected len))
       EvKey KUp []              -> 
         continue $ AppState conn ip cfg 
-                       (ViewBoard board xs (selectPrev selected len))
+                       (ViewBoard board n d xs (selectPrev selected len))
       EvKey KEnter []           -> do
         let id = postID . threadOP $ xs V.! selected
         page <- liftIO $ viewThread conn board id
@@ -149,8 +155,8 @@ appEvent st@(AppState conn ip cfg (ViewBoard board xs selected)) ev =
         page <- liftIO $ viewBoard conn board 
         continue (AppState conn ip cfg page)
       EvKey (KChar 'z') [MCtrl] -> do
-        d <- liftIO $ homepageDialog conn cfg
-        continue (AppState conn ip cfg (Homepage d))
+        h <- liftIO $ homepage conn cfg
+        continue (AppState conn ip cfg h)
       EvKey (KChar 'p') [MCtrl] ->
         continue $ AppState conn ip cfg
                        (MakePost board $ newPostUI Nothing Nothing)
@@ -250,8 +256,8 @@ appEvent st@(AppState conn ip cfg (MakePost board ui@(PostUI focus ed1 ed2 ed3 e
                        _ -> do
                          liftIO $ makePost conn ip subject name (T.stripEnd content)
                                   board reply
-                         xs' <- liftIO $ getThreads conn board 
-                         continue (AppState conn ip cfg (ViewBoard board xs' 0))
+                         page <- liftIO $ viewBoard conn board 
+                         continue (AppState conn ip cfg page)
         queryRemoveBan  = "DELETE * FROM bans WHERE ban_ip = ?"
 
 appEvent st@(AppState conn ip cfg (Banned board _ _ _)) ev =
@@ -318,8 +324,8 @@ main = do
       Right cfg -> do 
           conn <- open "chan.db"
           ip   <- getIP (chanUser cfg)
-          d    <- homepageDialog conn cfg
+          h    <- homepage conn cfg
           ip `seq` defaultMain (makeApp cfg) 
-                               (AppState conn ip cfg (Homepage d))
+                               (AppState conn ip cfg h)
           return ()
 
