@@ -53,7 +53,7 @@ drawUI :: AppState -> [Widget]
 drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage b d)) =
     [ hCenter (padRight (Pad 1) (str b)) <=>
       vLimit 3 (renderDialog d emptyWidget) <=>
-      hCenter (str "Tab to select board") <=>
+      hCenter (padBottom (Pad 2) $ str "Tab to select board") <=>
       hCenter (vBox $ map (hCenter . str) (lines msg))
     ]
 
@@ -312,9 +312,7 @@ makeApp cfg =
 -- Get the IP address of who's connected.
 getIP :: String -> IO String
 getIP usr = init <$> readCreateProcess (shell command) ""
-  where command =
-            "pinky | grep " ++ usr ++ 
-            " | sort -rk 5n | head -1 | awk '{ print $8 }'"
+  where command = "who --ips | grep anon | sort -rk 4 | head -1 | awk '{ print $5 }'"
 
 main :: IO ()
 main = do
