@@ -312,7 +312,8 @@ makeApp cfg =
 -- Get the IP address of who's connected.
 getIP :: String -> IO String
 getIP usr = init <$> readCreateProcess (shell command) ""
-  where command = "who --ips | grep anon | sort -rk 4 | head -1 | awk '{ print $5 }'"
+  where command = "who --ips | grep " ++ usr ++ 
+                  " | sort -rk 4 | head -1 | awk '{ print $5 }'"
 
 main :: IO ()
 main = do
