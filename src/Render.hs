@@ -6,6 +6,7 @@ import Brick
 import Types
 import Data.Time
 import Graphics.Vty
+import Control.Parallel
 import Brick.Widgets.Edit
 import Data.Vector (Vector)
 import Brick.Widgets.Border
@@ -15,8 +16,8 @@ import Brick.Widgets.Border.Style
 import qualified Data.Vector as V
 
 -- Renders a post.
-renderPost :: Bool -> Bool -> Bool -> Post -> Widget
-renderPost selected stickied locked (Post subject name date id content) =
+renderPost :: Bool -> Bool -> Bool -> Bool -> Post -> Widget
+renderPost isOp selected stickied locked (Post subject name date id content) =
     let renderSubject =
           raw . string (Attr (SetTo bold) (SetTo blue) Default) . T.unpack
         subjectInfo   = maybe emptyWidget renderSubject subject
@@ -28,19 +29,20 @@ renderPost selected stickied locked (Post subject name date id content) =
         lockmsg       = if locked then str "(locked)" else emptyWidget
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo, stickmsg, lockmsg]
         info          = hBox $ map (padRight (Pad 1)) allInfo
-        body          = markupWrapping content
-        borderStyle   = if selected then unicodeBold else unicode
-    in withBorderStyle borderStyle . border $
-           padBottom (Pad 1) info <=> padRight (Pad 1) body
+        body          = info `par` markupWrapping content
+        borderify     = if isOp then (\x -> x) else border
+        selectArrow   = if selected then (str "▶ " <+>) else padLeft (Pad 2)
+    in selectArrow (borderify $
+           padBottom (Pad 1) info <=> padRight (Pad 1) body)
 
 -- Render a thread 
 renderThread :: Int -> Thread -> Widget
 renderThread selected (Thread op xs omitted stickied locked)
-    | selected == (-1) = renderPost False stickied locked op <=> omitMsg <=>
-                         padLeft (Pad 2) (vBox . V.toList . V.map (renderPost False False False) $ xs)
-    | selected == 0    = visible $ renderPost True stickied locked op <=> omitMsg <=>
-                         padLeft (Pad 2) (vBox . V.toList . V.map (renderPost False False False) $ xs)
-    | otherwise        = renderPost False stickied locked op <=> omitMsg <=>
+    | selected == (-1) = renderPost True False stickied locked op <=> omitMsg <=>
+                         padLeft (Pad 2) (vBox . V.toList . V.map (renderPost False False False False) $ xs)
+    | selected == 0    = visible $ renderPost True True stickied locked op <=> omitMsg <=>
+                         padLeft (Pad 2) (vBox . V.toList . V.map (renderPost False False False False) $ xs)
+    | otherwise        = renderPost True False stickied locked op <=> omitMsg <=>
                          padLeft (Pad 2) 
                              (vBox . V.toList . V.imap renderSelected $ xs)
   where omitMsg =
@@ -49,16 +51,16 @@ renderThread selected (Thread op xs omitted stickied locked)
               Just n  -> padLeft (Pad 2) . str $ 
                              show n ++ " posts omitted. Hit enter to view."
         renderSelected index post
-            | index + 1 == selected = visible (renderPost True False False post)
-            | otherwise             = renderPost False False False post
+            | index + 1 == selected = visible (renderPost False True False False post)
+            | otherwise             = renderPost False False False False post
 
 -- Render several threads (these comments are helpful, aren't they?)
 renderThreads :: Int -> Vector Thread -> Widget
 renderThreads selected = vBox . V.toList . V.imap renderSelected 
   where renderSelected index thread
-            | index == selected = renderThread 0 thread
-            | otherwise         = renderThread (-1) thread
-
+            | index == selected = renderThread 0 thread <=> line
+            | otherwise         = renderThread (-1) thread <=> line
+        line = vLimit 1 (fill '-')
 
 -- Render a PostUI.
 renderPostUI :: PostUI -> Widget

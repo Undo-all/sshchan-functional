@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Wrap (markupWrapping) where
+module Wrap (markupWrapping, wrap) where
 
 -- This module provides wrapping versions of markup.
 -- It's horrifyingly ugly, I'll clean it up sometime.

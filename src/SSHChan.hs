@@ -44,9 +44,10 @@ data AppState = AppState Connection IP Config Page
 -- Takes a list of instructions, and makes a widget that equally spaces
 -- them, meant to be placed at the top or bottom of the screen.
 makeInstructions :: [String] -> Widget
-makeInstructions = hBox . pad . map str
+makeInstructions = (<=> line) . hBox . pad . map str
   where pad xs = intersperse space $ space : xs ++ [space]
         space  = vLimit 1 $ fill ' '
+        line   = vLimit 1 $ fill '-'
 
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]
@@ -58,7 +59,7 @@ drawUI (AppState _ _ Config{ chanHomepageMsg = msg } (Homepage b d)) =
     ]
 
 drawUI (AppState _ _ _ (ViewBoard _ name desc xs selected)) =
-    [ hCenter instructions <=> 
+    [ hCenter instructions <=>
       viewport "threads" Vertical (renderThreads selected xs) <=>
       hCenter (str ("/" ++ name ++ "/ - " ++ desc))
     ]
@@ -70,8 +71,8 @@ drawUI (AppState _ _ _ (ViewBoard _ name desc xs selected)) =
                            ]
 
 drawUI (AppState _ _ _ (ViewThread _ id thread selected)) =
-    [ hCenter instructions <=>
-      viewport "thread" Vertical (renderThread selected thread) <=>
+    [ padBottom (Pad 1) (hCenter instructions) <=>
+      viewport "thread" Both (renderThread selected thread) <=>
       (hCenter . str $ "Viewing thread No. " ++ show id)
     ]
   where instructions = makeInstructions 
@@ -281,7 +282,6 @@ appEvent st@(AppState conn ip cfg (MakeReport board id ed)) ev =
           ed' <- handleEvent ev ed
           continue (AppState conn ip cfg (MakeReport board id ed'))
             
-
 -- This dictates where the cursor goes. Note that we don't give a shit
 -- unless we're making a post.
 appCursor :: AppState -> [CursorLocation] -> Maybe CursorLocation
