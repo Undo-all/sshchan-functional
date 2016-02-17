@@ -44,10 +44,9 @@ data AppState = AppState Connection IP Config Page
 -- Takes a list of instructions, and makes a widget that equally spaces
 -- them, meant to be placed at the top or bottom of the screen.
 makeInstructions :: [String] -> Widget
-makeInstructions = (<=> line) . hBox . pad . map str
+makeInstructions = (<=> hBorder) . hBox . pad . map str
   where pad xs = intersperse space $ space : xs ++ [space]
         space  = vLimit 1 $ fill ' '
-        line   = vLimit 1 $ fill '-'
 
 -- Draw the AppState.
 drawUI :: AppState -> [Widget]

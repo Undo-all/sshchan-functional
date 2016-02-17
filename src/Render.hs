@@ -30,10 +30,10 @@ renderPost isOp selected stickied locked (Post subject name date id content) =
         allInfo       = [subjectInfo, nameInfo, dateInfo, idInfo, stickmsg, lockmsg]
         info          = hBox $ map (padRight (Pad 1)) allInfo
         body          = info `par` markupWrapping content
-        borderify     = if isOp then (\x -> x) else border
+        borderify x   = if isOp then x else border x
         selectArrow   = if selected then (str "▶ " <+>) else padLeft (Pad 2)
-    in selectArrow (borderify $
-           padBottom (Pad 1) info <=> padRight (Pad 1) body)
+    in selectArrow . borderify $
+           (padBottom (Pad 1) info <=> padRight (Pad 1) body)
 
 -- Render a thread 
 renderThread :: Int -> Thread -> Widget
@@ -48,7 +48,7 @@ renderThread selected (Thread op xs omitted stickied locked)
   where omitMsg =
             case omitted of
               Nothing -> emptyWidget
-              Just n  -> padLeft (Pad 2) . str $ 
+              Just n  -> padTop (Pad 1) . padLeft (Pad 2) . str $ 
                              show n ++ " posts omitted. Hit enter to view."
         renderSelected index post
             | index + 1 == selected = visible (renderPost False True False False post)
@@ -58,9 +58,8 @@ renderThread selected (Thread op xs omitted stickied locked)
 renderThreads :: Int -> Vector Thread -> Widget
 renderThreads selected = vBox . V.toList . V.imap renderSelected 
   where renderSelected index thread
-            | index == selected = renderThread 0 thread <=> line
-            | otherwise         = renderThread (-1) thread <=> line
-        line = vLimit 1 (fill '-')
+            | index == selected = renderThread 0 thread <=> hBorder
+            | otherwise         = renderThread (-1) thread <=> hBorder
 
 -- Render a PostUI.
 renderPostUI :: PostUI -> Widget

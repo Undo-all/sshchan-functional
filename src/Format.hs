@@ -57,7 +57,7 @@ parse tmp fmt res txt
         then parse mempty (filter (/=Underline) fmt) 
              (append tmp fmt res) (T.tail txt)
         else parse mempty (Underline:fmt) (append tmp fmt res) (T.tail txt)
-    | T.head txt == '[' = let txt' = (T.tail txt) in
+    | T.head txt == '[' = let txt' = T.tail txt in
       case T.findIndex (==';') txt' of
         Just x ->
           case T.findIndex (==':') txt' of
