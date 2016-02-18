@@ -13,6 +13,7 @@ import Graphics.Vty.Attributes
 import qualified Data.Text as T
 import Data.Text.Lazy (toStrict)
 import qualified Data.Text.Markup as M
+import Control.Applicative ((<*>), (<$>))
 
 data Format = Bold
             | Underline

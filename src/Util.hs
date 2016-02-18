@@ -21,6 +21,7 @@ import Data.Vector (Vector)
 import Database.SQLite.Simple
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Control.Applicative ((<$>))
 
 -- Tripcode generation code adapted 
 -- from http://cairnarvon.rotahall.org/2009/01/09/ofioc/

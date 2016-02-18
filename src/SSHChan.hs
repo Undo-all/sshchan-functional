@@ -25,6 +25,7 @@ import Database.SQLite.Simple
 import Graphics.Vty.Attributes
 import qualified Data.Text as T
 import qualified Data.Vector as V
+import Control.Applicative ((<$>))
 import Text.Read (readMaybe, readEither)
 import System.Process (shell, readCreateProcess)
 

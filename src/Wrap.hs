@@ -21,6 +21,7 @@ import Data.Text (Text)
 import Data.Text.Markup
 import Brick.Widgets.Core
 import qualified Data.Text as T
+import Control.Applicative ((<$>))
 
 wrap :: Int -> Int -> String -> (Int, String)
 wrap i n [] = (i, "")
