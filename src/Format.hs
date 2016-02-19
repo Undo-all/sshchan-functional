@@ -6,7 +6,6 @@ import Brick.Util
 import Data.Monoid
 import Brick.Markup
 import Data.Text (Text)
-import Control.Applicative
 import Text.Read (readMaybe)
 import Data.Text.Lazy.Builder
 import Graphics.Vty.Attributes
